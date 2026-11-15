@@ -47,7 +47,7 @@ jobs:
       - name: Initialize archive
         run: python src/pennywatch.py init
       - name: Scheduled collection, never fabricate missing prices
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[pilot]'))
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           CATALOG_FEED_0364: ${{ secrets.CATALOG_FEED_0364 }}
@@ -90,7 +90,7 @@ jobs:
       - name: Build static site and downloads
         run: python src/pennywatch.py build
       - name: Persist dated archives after scheduled or manual scans
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[pilot]'))
         run: |
           git config user.name 'Penny Watch Bot'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
