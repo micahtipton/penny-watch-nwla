@@ -9,7 +9,7 @@ const table=(heads,rows)=>rows.length?'<div class="table-wrap"><table class="tab
 let state={},filter='',tab='overview';
 const filtered=xs=>(xs||[]).filter(x=>!filter||x.store_id===filter);
 function alertText(message,warning=false){let el=$('#notice');el.hidden=!message;el.innerHTML=message?(warning?'Warning: ':'Note: ')+safe(message):'';}
-function switchTab(target){if(!document.getElementById(target))return;tab=target;document.querySelectorAll('.tab-page').forEach(e=>e.hidden=e.id!==target);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===target));$('#pageTitle').textContent=({overview:'Overview',clearance:'Clearance',leads:'Penny Leads',monday:'Monday Checklist',history:'Scan History',sources:'Sources & Health'})[target]||target;window.scrollTo(0,0)}
+function switchTab(target){if(!document.getElementById(target))return;tab=target;document.querySelectorAll('.tab-page').forEach(e=>e.hidden=e.id!==target);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===target));$('#pageTitle').textContent=({overview:'Overview',clearance:'Clearance',leads:'Penny Leads',community:'Free Source Reports',monday:'Monday Checklist',history:'Scan History',sources:'Sources & Health'})[target]||target;window.scrollTo(0,0)}
 const rowLink=r=>'<button class="text-btn show-history" data-sku="'+safe(r.sku)+'" data-store="'+safe(r.store_id)+'">History</button>';
 const priceRows=r=>['<b>'+safe(STORES[r.store_id]||r.store_id)+'</b><small> · '+safe(r.sku)+'</small>',safe(r.name),money(r.price),r.drop_pct==null?'—':safe(r.drop_pct)+'%',safe(r.score??0)+'/100',safe(r.confidence||'Unknown'),url(r.source_url),rowLink(r)];
 function readChecks(){try{return JSON.parse(localStorage.getItem('penny_watch_checks')||'[]')}catch{return []}}
@@ -33,6 +33,7 @@ function render(){
  $('#feedHealth').innerHTML='<p><b>'+sources.filter(x=>x[1]).length+'</b> feeds configured. A configured feed does not guarantee valid observations.</p>'+table(['Source','Status'],sources.map(([k,v])=>[safe(k),v?'Configured':'Not configured']));
  $('#comparisonsTable').innerHTML=table(['SKU','Product','Retailer','Total','Home Depot','Link'],leads.flatMap(r=>(r.offers||[]).map(o=>[safe(r.sku),safe(r.name),safe(o.retailer),money(o.total),money(r.price),url(o.source_url,'Compare')])));
  renderChecks();
+ renderCommunity();
  if(last?.errors)alertText('Collection errors: '+String(last.errors),true);
  else if(!last)alertText('No real collection recorded. This page does not contain confirmed Home Depot inventory.');
  else if(last.status!=='complete_tracked_scope')alertText('Last run status: '+last.status+'. Full inventory coverage is NOT established.',true);
@@ -66,3 +67,55 @@ $('#historyForm').onsubmit=async e=>{e.preventDefault();try{await history($('#hi
 document.addEventListener('click',e=>{let h=e.target.closest('.show-history');if(h){$('#historySku').value=h.dataset.sku;$('#historyStore').value=h.dataset.store;switchTab('history');history(h.dataset.sku,h.dataset.store).catch(err=>alertText(err.message,true))}let c=e.target.closest('.check-now');if(c){$('#checkSku').value=c.dataset.sku;$('#checkStore').value=c.dataset.store;switchTab('monday')}});
 async function load(){try{const r=await fetch('./data/dashboard.json?x='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('Data file not published ('+r.status+')');state=await r.json();render()}catch(e){alertText(e.message,true)}}
 load();
+
+function renderCommunity(){
+ const list=state.community_leads||[];
+ const q=($('#communitySearch')?.value||'').trim().toLowerCase();
+ const region=$('#communityRegion')?.value||'all';
+ const rows=list.filter(r=>{
+  const query=(r.sku+' '+r.name+' '+r.brand).toLowerCase();
+  const geographically=region==='la'?(r.la_reports||0)>0:region==='near'?(r.la_reports||0)+(r.neighbor_reports||0)>0:true;
+  return (!q||query.includes(q))&&geographically;
+ });
+ const summary=$('#communitySummary');
+ if(summary){
+  const last=state.sources_detail?.find(s=>s.source==='Penny Recon');
+  summary.textContent=last?.status==='ok'
+   ?'Source refreshed '+ts(last.last_success_at)+'. '+list.length+' community SKU leads. No Bossier or Shreveport prices verified by this feed.'
+   :last?.status==='error'
+    ?'Public feed failed on last attempt. Previous leads are retained where available; treat them as potentially stale.'
+    :'No successfully imported community feed yet. This view does not establish available inventory.';
+ }
+ const target=$('#communityTable');
+ if(target)target.innerHTML=table(
+  ['SKU','Product','State evidence','Reports','Reported score','Last seen','Source'],
+  rows.slice(0,500).map(r=>[
+   safe(r.sku),'<b>'+safe(r.name)+'</b><small> '+safe(r.brand)+'</small>',
+   'LA: '+safe(r.la_reports||0)+' · nearby: '+safe(r.neighbor_reports||0),
+   safe(r.report_count||0)+' <small>('+safe(r.source_count||1)+' reported sources)</small>',
+   safe(r.priority_score)+'/100',ts(r.reported_at),
+   url(r.source_url,r.source)
+  ])
+ );
+ const sources=$('#freeSourceTable');
+ if(sources){
+  const details=state.sources_detail||[];
+  const names=['Penny Recon','PennyCentral manual','PennyLoot manual','hdscanner','2scraper','omkar'];
+  sources.innerHTML=table(['Source','Collection','Last status','Last success','Reference'],names.map(name=>{
+   const h=details.find(x=>x.source===name);
+   const origin={
+    'Penny Recon':'https://www.pennyrecon.com/',
+    'PennyCentral manual':'https://www.pennycentral.com/penny-list',
+    'PennyLoot manual':'https://www.pennyloot.com/',
+    hdscanner:'https://github.com/KenStager/HDScanner',
+    '2scraper':'https://github.com/2scraper/homedepot-scraper',
+    omkar:'https://github.com/omkarcloud/homedepot-scraper'
+   }[name];
+   return [safe(name),safe(name==='Penny Recon'?'Published JSON':'Manual / permitted export'),
+    safe(h?.status||'Not imported'),ts(h?.last_success_at),url(origin,'Source')];
+  }));
+ }
+}
+$('#communitySearch').oninput=renderCommunity;
+$('#communityRegion').onchange=renderCommunity;
+$('#exportCommunity').onclick=()=>location.href='./data/community-leads.csv';
