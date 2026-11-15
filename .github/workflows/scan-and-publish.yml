@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Python syntax check
-        run: python -m py_compile src/pennywatch.py
+        run: python -m py_compile src/pennywatch.py src/free_sources.py src/source_imports.py
       - name: Verify archive integrity and coverage safety
         run: python -m unittest discover -s tests -v
       - name: Initialize archive
@@ -71,10 +71,22 @@ jobs:
               args=['collect','--slot',stamp+'-'+slot]
           raise SystemExit(subprocess.run(['python','src/pennywatch.py',*args]).returncode)
           PY
+      - name: Refresh published free-source leads on code updates
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'src')
+          import pennywatch, free_sources, source_imports
+          cx = pennywatch.db()
+          print('Penny Recon:', free_sources.sync_recon(cx))
+          print('Supplied source files:', source_imports.import_exports(cx,'source-import'))
+          cx.close()
+          PY
       - name: Build static site and downloads
         run: python src/pennywatch.py build
-      - name: Persist dated verified archive (scheduled/manual runs only)
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      - name: Persist public source history and dated scan archive
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: |
           git config user.name 'Penny Watch Bot'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
