@@ -5,7 +5,7 @@ from pathlib import Path
 import pennywatch as pw
 import free_sources as fs
 ROOT=Path(__file__).resolve().parents[1]
-KNOWN={"2scraper","hdscanner","omkar","pennycentral","pennyloot","spotted"}
+KNOWN={"2scraper","hdscanner","omkar","pennycentral","pennyloot","spotted","arklatex"}
 def value(r,*keys):
     for k in keys:
         x=r.get(k)
@@ -19,7 +19,7 @@ def rows(path):
     return list(csv.DictReader(io.StringIO(txt)))
 def row_import(cx,source,row,run):
     if not isinstance(row,dict):raise ValueError("not an object")
-    if source in ("2scraper","hdscanner","omkar"):
+    if source in ("2scraper","hdscanner","omkar","arklatex"):
         st=fs.store(value(row,"store_id","storeId","store"))
         if source=="2scraper":
             sk=fs.sku(value(row,"store_sku","storeSku"))
@@ -27,20 +27,33 @@ def row_import(cx,source,row,run):
         elif source=="omkar":
             sk=fs.sku(value(row,"store_sku","storeSku"))
             internet=value(row,"id","product_id")
+        elif source=="arklatex":
+            sk=fs.sku(value(row,"store_sku","storeSku","sku"))
+            internet=value(row,"product_id","internet_number")
         else:
             sk=fs.sku(value(row,"store_sku","storeSku","sku"))
             internet=value(row,"product_id","internet_number")
-        observed=fs.date(value(row,"observed_at","scraped_at","collected_at","timestamp"))
-        source_url=fs.https(value(row,"source_url","url","product_url","link"))
-        amount=value(row,"price","current_price","sale_price")
+        observed=fs.date(value(row,"observed_at","observedAt","scraped_at","collected_at","timestamp"))
+        source_url=fs.https(value(row,"source_url","sourceUrl","url","product_url","link"))
+        if source=="arklatex":
+            from urllib.parse import urlparse
+            hostname=(urlparse(source_url).hostname or "").lower()
+            if hostname not in ("www.homedepot.com","homedepot.com"):
+                raise ValueError("Ark-La-Tex observation must link to an actual Home Depot product page")
+            confirmed=str(value(row,"stored","persisted","ingested") or "").strip().lower()
+            if confirmed not in ("true","1","yes"):
+                raise ValueError("Ark-La-Tex observation has no explicit database-persisted confirmation")
+            if any(tag in str(value(row,"source","name","title") or "").lower() for tag in ("demo","illustrative","example only","sample only")):
+                raise ValueError("Demo or illustrative observation must never import")
+        amount=value(row,"price","current_price","currentPrice","sale_price")
         if amount is None:raise ValueError("missing price")
         pw.price(cx,{
             "store_id":st,"sku":sk,"name":value(row,"name","title") or "",
             "brand":value(row,"brand") or "",
             "category":value(row,"category") or "",
             "product_id":str(internet or ""),"price":amount,
-            "regular_price":value(row,"regular_price","original_price"),
-            "price_type":"online","source":source+" supplied export",
+            "regular_price":value(row,"regular_price","regularPrice","original_price"),
+            "price_type":"online","source":("Ark-La-Tex hosted collector" if source=="arklatex" else source+" supplied export"),
             "source_url":source_url,"observed_at":observed
         },run)
     else:
