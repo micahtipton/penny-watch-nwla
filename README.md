@@ -77,6 +77,14 @@ Automated third-party **community** ingestion currently uses Penny Recon's publi
 
 To disable the online checker, set `PW_HD_ENABLED=0` in the scheduled workflow environment. `PW_HD_MAX_QUERIES` sets an upper bound (max 12). A successful request still only establishes a sampled, store-parameterized response, not full stock coverage.
 
+## First live check — November 14, 2026 (Central)
+
+A GitHub Actions one-time pilot successfully executed the new automated collection workflow. The `Penny Recon` public community feed returned 505 sourced reports.
+
+**Home Depot storefront result:** the first request for Bossier City store **0364** returned **HTTP 206** with no valid price data. The collector stopped before requesting prices for Bert Kouns **0356** or Pines Road **0381**, then recorded `refused` and a 24-hour cooldown. **Zero verified Home Depot store-price observations were saved.** This is an access restriction, not evidence that products are unavailable or not on clearance. The dashboard records the attempted store and correctly labels the other stores not checked.
+
+The 5 AM and 1 PM Central scheduled workflow remains configured, but it cannot guarantee collection without acceptable access to store-specific product data. The system never treats blocked scans as successful. Future options are an authorized store-level feed or a user-operated local collector *only if the chosen access method is permitted and actually works*. Free source projects do not automatically grant access to Home Depot or to their own data.
+
 ## Current limitations
 
 - The new bounded online checker is configured, but whether GitHub can successfully query the selected storefront for the three stores has not yet been verified.
