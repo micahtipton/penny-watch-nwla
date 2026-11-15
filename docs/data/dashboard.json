@@ -1,0 +1,23 @@
+{
+  "tracked_count": 0,
+  "observation_count": 0,
+  "counts": {
+    "0364": 0,
+    "0356": 0,
+    "0381": 0
+  },
+  "runs": [],
+  "sources": {
+    "CATALOG_FEED_0364": false,
+    "CATALOG_FEED_0356": false,
+    "CATALOG_FEED_0381": false,
+    "PRICE_FEED_0364": false,
+    "PRICE_FEED_0356": false,
+    "PRICE_FEED_0381": false,
+    "REPORTS_FEED_URL": false,
+    "RETAIL_FEED_URL": false
+  },
+  "leads": [],
+  "clearance": [],
+  "monday": []
+}
