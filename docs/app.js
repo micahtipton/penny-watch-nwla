@@ -18,13 +18,23 @@ function render(){
  let leads=filtered(state.leads||[]),clearance=filtered(state.clearance||[]),monday=filtered(state.monday||[]),runs=state.runs||[],last=runs[0];
  $('#metricCatalog').textContent=Number(state.tracked_count||0).toLocaleString();
  $('#metricObservations').textContent=Number(state.observation_count||0).toLocaleString();
- $('#metricLeads').textContent=leads.length;
+ $('#metricLeads').textContent=new Set([...leads.map(x=>x.sku),...(state.community_leads||[]).map(x=>x.sku)]).size;
  $('#metricClearance').textContent=clearance.filter(x=>+x.drop_pct>=60).length;
  $('#metricLastScan').textContent=last?ts(last.started_at):'Never';
  $('#metricLastStatus').textContent=last?safe(last.status||'unknown').replaceAll('_',' '):'No scan recorded';
  $('#syncLabel').textContent=last?'Last run: '+(last.status||'unknown').replaceAll('_',' ')+' · '+ts(last.started_at):'Waiting for first scan';
  $('#coverage').innerHTML=Object.entries(STORES).map(([id,name])=>{let obs=Number(last?.observed_by_store?.[id]||0),expected=last?.expected_by_store?.[id];let pct=expected?Math.min(100,100*obs/expected):0;return '<div class="coverage-row"><div class="coverage-label"><b>'+safe(name)+'</b><small>'+obs+' in last run · '+(expected==null?'coverage unknown':'expected '+expected)+'</small></div><div class="bar"><div style="width:'+pct+'%"></div></div></div>'}).join('');
- $('#overviewLeads').innerHTML=table(['Store / SKU','Product','Observed','Drop','Priority','Evidence','Source',''],leads.slice().sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,12).map(priceRows));
+ const localPreview=leads.slice().sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,12).map(priceRows);
+ const communityPreview=(state.community_leads||[]).slice().sort((a,b)=>(b.la_reports||0)-(a.la_reports||0)||(b.priority_score||0)-(a.priority_score||0)).slice(0,12).map(r=>[
+  'Store unverified / '+safe(r.sku),safe(r.name),
+  'No local price','—',safe(r.priority_score)+'/100',
+  'LA: '+safe(r.la_reports||0)+' · nearby: '+safe(r.neighbor_reports||0),
+  url(r.source_url,r.source),''
+ ]);
+ $('#overviewLeads').innerHTML=table(
+  ['Store / SKU','Product','Observed','Drop','Priority','Evidence','Source',''],
+  localPreview.length?localPreview:communityPreview
+ );
  $('#clearanceTable').innerHTML=table(['Store / SKU','Product','Price','Markdown','Priority','Evidence','Source',''],clearance.map(priceRows));
  $('#leadsTable').innerHTML=table(['Store / SKU','Product','Price','Reports','Priority','Confidence','Sources',''],leads.filter(r=>r.report_count>0).map(r=>[safe(STORES[r.store_id])+' / '+safe(r.sku),safe(r.name),money(r.price),safe(r.report_count||0),safe(r.score||0)+'/100',safe(r.confidence||'Unverified'),(r.source_reports||[]).map(o=>url(o.source_url,o.source)).join(' · ')||'—',rowLink(r)]));
  $('#mondayTable').innerHTML=table(['','Store / SKU','Product','Price','Markdown','Priority','Evidence',''],monday.map(r=>['<input type="checkbox" aria-label="Check '+safe(r.sku)+'">',safe(STORES[r.store_id]+' / '+r.sku),safe(r.name),money(r.price),r.drop_pct==null?'—':safe(r.drop_pct)+'%',safe(r.score||0)+'/100',(r.source_reports||[]).map(o=>url(o.source_url,o.source)).join(' · ')||url(r.source_url),'<button class="text-btn check-now" data-store="'+safe(r.store_id)+'" data-sku="'+safe(r.sku)+'">Log</button>']));
