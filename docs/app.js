@@ -114,13 +114,14 @@ function renderCommunity(){
  const sources=$('#freeSourceTable');
  if(sources){
   const details=state.sources_detail||[];
-  const names=['Penny Recon','PennyCentral manual','PennyLoot manual','hdscanner','2scraper','omkar'];
+  const names=['Penny Recon','PennyCentral manual','PennyLoot manual','Spotted manual','hdscanner','2scraper','omkar'];
   sources.innerHTML=table(['Source','Collection','Last status','Last success','Reference'],names.map(name=>{
    const h=details.find(x=>x.source===name);
    const origin={
     'Penny Recon':'https://www.pennyrecon.com/',
     'PennyCentral manual':'https://www.pennycentral.com/penny-list',
     'PennyLoot manual':'https://www.pennyloot.com/',
+    'Spotted manual':'https://www.spottedflips.com/penny',
     hdscanner:'https://github.com/KenStager/HDScanner',
     '2scraper':'https://github.com/2scraper/homedepot-scraper',
     omkar:'https://github.com/omkarcloud/homedepot-scraper'
