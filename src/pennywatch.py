@@ -168,8 +168,9 @@ def collect(run):
   import hd_live
   hd_live_result=hd_live.scan(cx,run)
   print('HD ONLINE PRICE CHECK: '+json.dumps(hd_live_result))
-  if hd_live_result['status'] in ('refused','cooldown','no_price_data'):
-   errors.append('Home Depot online check '+hd_live_result['status']+'; store prices not verified for this run')
+  if hd_live_result['status'] in ('partial','cooldown','no_price_data'):
+   statuses={st:info.get('status','unknown') for st,info in hd_live_result.get('stores',{}).items()}
+   errors.append('Home Depot store check '+hd_live_result['status']+'; '+json.dumps(statuses,sort_keys=True))
  except ModuleNotFoundError:
   pass
  except Exception as e:
