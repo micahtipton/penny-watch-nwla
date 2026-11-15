@@ -1,0 +1,2 @@
+sku,name,source,source_url,state,city,reported_price,reported_at,report_count,notes
+1234567890,ILLUSTRATIVE EXAMPLE - NOT REAL INVENTORY,Example Source,https://example.com/not-real,TX,Sample City,0.01,2026-11-14T11:00:00Z,2,Unverified fake sample; never use for a real lead
