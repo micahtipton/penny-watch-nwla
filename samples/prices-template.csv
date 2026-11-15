@@ -1,0 +1,2 @@
+store_id,sku,name,brand,category,price,regular_price,stock,price_type,source,source_url,observed_at
+0364,1234567890,ILLUSTRATIVE EXAMPLE - NOT REAL INVENTORY,Example Brand,Tools,20.00,50.00,2,online,Illustrative file,https://example.com/not-real,2026-11-14T11:00:00Z
