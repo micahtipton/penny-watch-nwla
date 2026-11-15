@@ -137,6 +137,31 @@ class HomeDepotCheckTests(unittest.TestCase):
   with self.assertRaises(hd.RemoteRefusal) as ctx:
    hd.parse_product_response(206,'HTTP/2 206\\r\\n\\r\\n','<html>Verify you are human</html>')
   self.assertEqual(ctx.exception.kind,'refused')
+ def test_graphql_application_error_is_not_automatically_a_block(self):
+  import json
+  message=json.dumps({'errors':[{'message':'Unknown argument in schema',
+                                'extensions':{'code':'GRAPHQL_VALIDATION_FAILED'}}]})
+  with self.assertRaises(hd.InvalidResponse) as x:
+   hd.parse_product_response(206,'HTTP/2 206\r\ncontent-type: application/json\r\n\r\n',message)
+  self.assertNotIsInstance(x.exception,hd.RemoteRefusal)
+  self.assertIn("error_code=GRAPHQL_VALIDATION_FAILED",str(x.exception))
+ def test_graphql_explicit_rate_limit_honors_retry_after(self):
+  import json
+  msg=json.dumps({'errors':[{'message':'Too many requests','extensions':{'code':'RATE_LIMITED'}}]})
+  with self.assertRaises(hd.RemoteRefusal) as x:
+   hd.parse_product_response(206,'HTTP/2 206\r\nretry-after: 120\r\n\r\n',msg)
+  self.assertEqual(x.exception.kind,'rate_limited')
+  self.assertEqual(x.exception.retry_after_seconds,120)
+ def test_graphql_explicit_access_denial_is_a_refusal(self):
+  import json
+  msg=json.dumps({'errors':[{'message':'Access denied','extensions':{'code':'FORBIDDEN'}}]})
+  with self.assertRaises(hd.RemoteRefusal) as x:
+   hd.parse_product_response(206,'HTTP/2 206\r\n\r\n',msg)
+  self.assertEqual(x.exception.kind,'refused')
+ def test_http_403_retry_after_is_honored(self):
+  with self.assertRaises(hd.RemoteRefusal) as x:
+   hd.parse_product_response(403,'HTTP/2 403\r\nretry-after: 900\r\n\r\n','')
+  self.assertEqual(x.exception.retry_after_seconds,900)
  def test_http_206_diagnostics_are_metadata_only(self):
   headers=("HTTP/2 206\r\ncontent-type: application/json\r\n"
            "content-range: bytes 0-19/100\r\nretry-after: 120\r\n"
