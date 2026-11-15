@@ -159,6 +159,8 @@ def collect(run):
   if os.environ.get('PW_FETCH_PENNYRECON','1')!='0':
    feed_result=fs.sync_recon(cx)
    print('Community feed: '+json.dumps(feed_result))
+ except ModuleNotFoundError:
+  pass  # Keep the standalone collector valid without optional free-source module.
  except Exception as e:
   errors.append('community integration: '+str(e)[:140])
  # Source exports require exact local SKU, store, timestamp and evidence URL.
@@ -166,6 +168,8 @@ def collect(run):
   import source_imports
   import_result=source_imports.import_exports(cx,run)
   if import_result:print('Imported source exports: '+json.dumps(import_result))
+ except ModuleNotFoundError:
+  pass  # Manual exports module is optional in minimal deployments.
  except Exception as e:
   errors.append('source imports: '+str(e)[:140])
  # Count saved observations, including source imports (not just direct feeds).
