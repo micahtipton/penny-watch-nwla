@@ -260,6 +260,7 @@ def record_check(cx,run_id,store,info):
  except (ImportError,sqlite3.Error):pass
 
 def scan(cx,run_id,requester=None):
+ # Each store receives a bounded independent check; never retry refused requests.
  init(cx)
  requester=requester or request
  if os.environ.get("PW_HD_ENABLED","1")=="0":
