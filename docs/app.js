@@ -97,6 +97,20 @@ function renderCommunity(){
    url(r.source_url,r.source)
   ])
  );
+ const mondayBox=$('#mondayCommunityTable');
+ if(mondayBox){
+  const regional=list.filter(r=>(r.la_reports||0)+(r.neighbor_reports||0)>0)
+   .sort((a,b)=>(b.la_reports||0)-(a.la_reports||0)||(b.priority_score||0)-(a.priority_score||0))
+   .slice(0,35);
+  mondayBox.innerHTML=table(
+   ['SKU','Product','LA reports','Nearby reports','Reported last','Source'],
+   regional.map(r=>[
+    safe(r.sku),safe(r.name),
+    safe(r.la_reports||0),safe(r.neighbor_reports||0),ts(r.reported_at),
+    url(r.source_url,'Report only')
+   ])
+  );
+ }
  const sources=$('#freeSourceTable');
  if(sources){
   const details=state.sources_detail||[];
