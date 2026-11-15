@@ -40,6 +40,7 @@ class RemoteRefusal(RuntimeError):
   self.retry_after_seconds=retry_after_seconds
 class InvalidResponse(RuntimeError):pass
 class PartialContent(InvalidResponse):pass
+class GatewayError(InvalidResponse):pass
 
 def init(cx):
  cx.executescript(SCHEMA)
@@ -90,6 +91,36 @@ def retry_after_seconds(value):
  except (ValueError,TypeError,IndexError,OverflowError):pass
  return None
 
+def gateway_error_signature(payload):
+ """Minimal diagnostic signature for public API errors; never log raw bodies."""
+ import hashlib
+ data=payload.get("data")
+ keys=sorted(str(k)[:45] for k in data if isinstance(k,str)) if isinstance(data,dict) else []
+ err=payload.get("errors") or payload.get("error") or []
+ if isinstance(err,dict) or isinstance(err,str):err=[err]
+ if not isinstance(err,list):err=[err]
+ first=next((e for e in err if e),None)
+ first=first if isinstance(first,dict) else {"message":str(first or "")}
+ ext=first.get("extensions") if isinstance(first.get("extensions"),dict) else {}
+ raw_code=str(ext.get("code") or first.get("code") or "")
+ code=re.sub(r"[^A-Za-z0-9_-]","",raw_code)[:40] or "unspecified"
+ message=str(first.get("message") or "").lower()
+ normalized=re.sub(r"[^a-z0-9]","",message)
+ if "genericerror" in normalized:
+  msgclass="generic_error"
+ elif any(t in message for t in ("validation","unknown field","cannot query field","unknown argument")):
+  msgclass="schema_or_query"
+ elif any(t in message for t in ("rate limit","too many requests","throttl")):
+  msgclass="rate_limited"
+ elif any(t in message for t in ("access denied","unauthorized","forbidden","request blocked")):
+  msgclass="access_denied"
+ else:msgclass="other"
+ shape=("|".join(keys)).replace(",",";")[:110] or "none"
+ digest=hashlib.sha256(json.dumps(payload,sort_keys=True,
+       separators=(",",":"),default=str).encode("utf-8")).hexdigest()[:12]
+ return {"keys":shape,"code":code,"message_class":msgclass,
+         "error_count":len(err),"digest":digest}
+
 def parse_product_response(status,headers_text,body):
  """Classify responses before deciding to stop a store or accept records."""
  headers=parsed_headers(headers_text)
@@ -123,26 +154,34 @@ def parse_product_response(status,headers_text,body):
  if not isinstance(raw,dict):
   raise InvalidResponse("Non-object JSON; HTTP "+str(status)+"; "+diag)
  if raw.get("errors") or raw.get("error"):
-  errs=raw.get("errors")
-  if not isinstance(errs,list):errs=[errs or raw.get("error")]
-  first=next((e for e in errs if e),None)
-  first=first if isinstance(first,dict) else {"message":str(first or "unknown")}
+  detail=gateway_error_signature(raw)
+  signature=("data_keys="+detail["keys"]+
+             "; message_class="+detail["message_class"]+
+             "; code="+detail["code"]+
+             "; error_count="+str(detail["error_count"])+
+             "; payload_hash="+detail["digest"])
+  raw_errors=raw.get("errors") or raw.get("error")
+  if not isinstance(raw_errors,list):raw_errors=[raw_errors]
+  first=next((e for e in raw_errors if e),None)
+  first=first if isinstance(first,dict) else {"message":str(first or "")}
   extensions=first.get("extensions") if isinstance(first.get("extensions"),dict) else {}
-  code=re.sub(r"[^A-Za-z0-9_-]","",str(extensions.get("code") or first.get("code") or ""))[:35]
-  # Never log the raw error payload: it may include request-specific tokens.
   message=str(first.get("message") or "")
-  normalized=(code+" "+message).lower()
+  normalized=(str(extensions.get("code") or first.get("code") or "")+" "+message).lower()
   if any(token in normalized for token in ("rate limit","too many requests","throttl","rate_limited","quota exceeded")):
-   raise RemoteRefusal("GraphQL rate limit; HTTP "+str(status)+"; "+diag,
+   raise RemoteRefusal("GraphQL rate limit; "+signature+"; "+diag,
                        kind="rate_limited",
                        retry_after_seconds=seconds if seconds is not None else 7200)
   if any(token in normalized for token in ("access denied","access blocked","forbidden",
                                             "unauthorized","captcha","bot detected","request blocked")):
-   raise RemoteRefusal("GraphQL access refusal; HTTP "+str(status)+"; "+diag,
+   raise RemoteRefusal("GraphQL access refusal; "+signature+"; "+diag,
                        kind="refused",
                        retry_after_seconds=seconds if seconds is not None else 43200)
-  raise InvalidResponse("GraphQL application error; HTTP "+str(status)+
-                        "; error_code="+(code or "unspecified")+"; "+diag)
+  if any(k.lower().replace(" ","") in ("genericerrorsapi","genericerror") 
+         for k in (raw.get("data") if isinstance(raw.get("data"),dict) else {})) or detail["message_class"]=="generic_error":
+   # A gateway-generated error envelope is not a product-query validation error.
+   # It may indicate an edge rejection; do not retry it in this run.
+   raise GatewayError("Home Depot generic gateway error; "+signature+"; "+diag)
+  raise InvalidResponse("GraphQL application/query error; "+signature+"; "+diag)
  data=raw.get("data")
  model=data.get("searchModel") if isinstance(data,dict) else None
  if not isinstance(model,dict) or not isinstance(model.get("products"),list):
@@ -313,6 +352,11 @@ def scan(cx,run_id,requester=None):
                (43200 if status=="refused" else 7200))
     # Stop only the affected store. Never retry a denied request.
     break
+   except GatewayError as exc:
+    status="gateway_error"
+    messages.append(str(exc))
+    # Stop this store without retry; other stores have independent records.
+    break
    except PartialContent as exc:
     status="partial_response"
     messages.append(str(exc))
@@ -362,7 +406,7 @@ def scan(cx,run_id,requester=None):
  statuses={k:v["status"] for k,v in results.items()}
  if all(v=="ok_partial_scope" for v in statuses.values()):
   overall="partial_scope"  # Selected SKUs, never full catalog.
- elif any(v in ("refused","rate_limited","cooldown","partial_response","error") for v in statuses.values()):
+ elif any(v in ("refused","rate_limited","cooldown","partial_response","gateway_error","error") for v in statuses.values()):
   overall="partial"
  else:
   overall="partial_scope" if total else "no_price_data"
