@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Python syntax check
-        run: python -m py_compile src/pennywatch.py src/free_sources.py src/source_imports.py
+        run: python -m py_compile src/pennywatch.py src/free_sources.py src/source_imports.py src/hd_live.py
       - name: Check dashboard JavaScript syntax
         run: node --check docs/app.js
       - name: Verify archive integrity and coverage safety
@@ -59,6 +59,8 @@ jobs:
           REPORTS_FEED_URL: ${{ secrets.REPORTS_FEED_URL }}
           RETAIL_FEED_URL: ${{ secrets.RETAIL_FEED_URL }}
           AUTH_FEED_BEARER: ${{ secrets.AUTH_FEED_BEARER }}
+          PW_HD_ENABLED: '1'
+          PW_HD_MAX_QUERIES: '9'
         run: |
           python - <<'PY'
           import os,subprocess
