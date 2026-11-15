@@ -40,6 +40,8 @@ jobs:
           python-version: '3.12'
       - name: Python syntax check
         run: python -m py_compile src/pennywatch.py
+      - name: Verify archive integrity and coverage safety
+        run: python -m unittest discover -s tests -v
       - name: Initialize archive
         run: python src/pennywatch.py init
       - name: Scheduled collection, never fabricate missing prices
