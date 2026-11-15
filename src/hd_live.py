@@ -45,10 +45,26 @@ def query_variables(store,keyword):
  return {"storeId":store,"startIndex":0,"pageSize":24,"orderBy":{"field":"BEST_MATCH","order":"ASC"},
  "filter":{},"isBrandPricingPolicyCompliant":False,"keyword":keyword,"navParam":None,
  "storefilter":"IN_STORE","channel":"DESKTOP","additionalSearchParams":{"deliveryZip":"","multiStoreIds":[]}}
+def response_diagnostics(header_text, body):
+ """Safe HTTP metadata only; do not store response bodies, cookies or secrets."""
+ blocks=str(header_text or '').replace('\\r','').split('\\n\\n')
+ last=next((b for b in reversed(blocks) if b.lstrip().startswith('HTTP/')), '')
+ headers={}
+ for line in last.splitlines():
+  name,sep,val=line.partition(':')
+  if sep and name.strip().lower() in ('content-type','content-range','retry-after'):
+   headers[name.strip().lower()]=re.sub(r'[^A-Za-z0-9_ .,:;=/+-]','',val.strip())[:70]
+ kind=('empty' if not body.strip() else 'html' if body.lstrip().startswith('<') else
+       'json' if body.lstrip().startswith(('{','[')) else 'other')
+ return ('body='+kind+', bytes='+str(len(body.encode('utf-8')))+
+         ', type='+headers.get('content-type','absent')+
+         ', range='+headers.get('content-range','absent')+
+         ', retry_after='+headers.get('retry-after','absent'))
+
 def request(store,keyword):
  payload=json.dumps({"operationName":"searchModel","query":QUERY,"variables":query_variables(store,keyword)})
  command=["curl","--silent","--show-error","--location","--compressed","--max-time","18",
-  "--max-filesize","750000","-w","\n%{http_code}","-X","POST","--url",ENDPOINT,
+  "--max-filesize","750000","--dump-header","/dev/stderr","-w","\n%{http_code}","-X","POST","--url",ENDPOINT,
   "-H","Accept: application/json","-H","Content-Type: application/json",
   "-H","Referer: https://www.homedepot.com/","-H","x-experience-name: general-merchandise",
   "-H","x-hd-dc: origin","-H","x-debug: false",
@@ -60,7 +76,7 @@ def request(store,keyword):
  body,sep,code=p.stdout.rpartition("\n")
  try:status=int(code.strip())
  except ValueError:raise InvalidResponse("No HTTP status")
- if status in (403,206,429):raise RemoteRefusal("Home Depot declined automated request (HTTP "+str(status)+")")
+ if status in (403,206,429):raise RemoteRefusal("Home Depot returned unusable HTTP "+str(status)+"; "+response_diagnostics(p.stderr,body))
  if status!=200:raise InvalidResponse("Unexpected HTTP "+str(status))
  if body.lstrip().startswith("<"):raise RemoteRefusal("Received HTML or access-control response, not product JSON")
  try:raw=json.loads(body)
