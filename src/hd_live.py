@@ -228,64 +228,122 @@ def lead_queries(cx,per_store):
   cx.execute("INSERT OR REPLACE INTO hd_scan_cursor VALUES('leads',?)",((pos+len(selected))%len(rows),))
   return selected
  except sqlite3.Error:return []
+def store_pause(cx,store):
+ """Only this store can be paused by an explicit rate limit or refusal."""
+ row=cx.execute("SELECT until_utc,reason FROM hd_cooldown WHERE key=?",("store:"+store,)).fetchone()
+ if not row:return None
+ try:until=datetime.fromisoformat(row[0])
+ except ValueError:return None
+ if until<=datetime.now(timezone.utc):
+  cx.execute("DELETE FROM hd_cooldown WHERE key=?",("store:"+store,))
+  return None
+ return {"until":until.isoformat(),"reason":row[1]}
+
+def save_pause(cx,store,kind,seconds):
+ seconds=int(seconds or 7200)
+ # Honor longer Retry-After values, without creating indefinite blocks.
+ seconds=min(365*86400,max(60,seconds))
+ until=(datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat()
+ cx.execute("INSERT OR REPLACE INTO hd_cooldown VALUES(?,?,?)",
+            ("store:"+store,until,kind))
+ return until
+
+def record_check(cx,run_id,store,info):
+ cx.execute("INSERT OR REPLACE INTO hd_check_history VALUES(?,?,?,?,?,?,?,?,?,?)",
+  (run_id,store,info["attempted"],info["valid_responses"],
+   info["product_rows"],info["price_rows"],info["stock_rows"],
+   info["status"],info["reason"][:250],now()))
+ try:
+  import free_sources
+  free_sources.record_health(cx,"Home Depot "+store,"online storefront query",
+   info["status"],info["price_rows"],info["reason"][:250],ENDPOINT)
+ except (ImportError,sqlite3.Error):pass
+
 def scan(cx,run_id,requester=None):
- init(cx); requester=requester or request
- selected=(os.environ.get("PW_HD_ENABLED","1")!="0")
- if not selected:return {"status":"disabled","saved":0,"stores":{}}
- cooldown=cx.execute("SELECT until_utc,reason FROM hd_cooldown WHERE key='global'").fetchone()
- if cooldown:
-  try:until=datetime.fromisoformat(cooldown[0])
-  except ValueError:until=datetime.now(timezone.utc)
-  if until>datetime.now(timezone.utc):
-   return {"status":"cooldown","saved":0,"reason":cooldown[1],"stores":{}}
+ init(cx)
+ requester=requester or request
+ if os.environ.get("PW_HD_ENABLED","1")=="0":
+  return {"status":"disabled","saved":0,"stores":{}}
+ # Previous global 24-hour blocks were introduced by the old HTTP 206 handling.
+ # Remove them: 206 no longer triggers a cooldown for any store.
+ cx.execute("DELETE FROM hd_cooldown WHERE key='global'")
  budget=min(12,max(3,int(os.environ.get("PW_HD_MAX_QUERIES","9"))))
- per_store=max(1,budget//3)
+ per_store=max(1,budget//len(pw.STORES))
  brands=next_keywords(cx,max(1,per_store-1))
  targeted=lead_queries(cx,1) if per_store>1 else []
  combos=(brands+targeted)[:per_store]
- results={};refused=False;seen=set();total=0
+ results={};seen=set();total=0
  for st in pw.STORES:
+  pause=store_pause(cx,st)
+  if pause is not None:
+   info={"attempted":0,"valid_responses":0,"product_rows":0,"price_rows":0,
+         "stock_rows":0,"status":"cooldown",
+         "reason":"Store-specific pause until "+pause["until"]+" ("+pause["reason"]+")"}
+   results[st]=info;record_check(cx,run_id,st,info);continue
   attempted=0;valid=0;products=0;saved=0;stock_n=0;messages=[]
-  for key in combos:
-   if refused:break
+  status="no_prices"
+  for keyword in combos:
    attempted+=1
-   try:response=requester(st,key)
+   try:
+    response=requester(st,keyword)
    except RemoteRefusal as exc:
-    refused=True;messages.append(str(exc));break
+    status=exc.kind if exc.kind in ("refused","rate_limited") else "refused"
+    messages.append(str(exc))
+    save_pause(cx,st,status,exc.retry_after_seconds or
+               (43200 if status=="refused" else 7200))
+    # Stop only the affected store. Never retry a denied request.
+    break
+   except PartialContent as exc:
+    status="partial_response"
+    messages.append(str(exc))
+    # No arbitrary 24-hour pause: next scheduled run can check this store again.
+    break
+   except InvalidResponse as exc:
+    status="error"
+    messages.append(str(exc))
+    # Avoid repeated requests against the same unexpected response.
+    break
    except Exception as exc:
-    messages.append(type(exc).__name__+": "+str(exc)[:110]);continue
+    status="error"
+    messages.append(type(exc).__name__+": "+str(exc)[:100])
+    break
    valid+=1
-   rows=normalize_products(response,st,now());products+=len(rows)
+   partial=bool(response.get("_partial_http")) if isinstance(response,dict) else False
+   if partial:
+    status="partial_response"
+    messages.append("HTTP 206 returned valid but potentially incomplete product JSON; "+
+                    str(response.get("_http_diagnostic",""))[:90])
+   rows=normalize_products(response,st,now())
+   products+=len(rows)
    for row in rows:
-    # One product per store per run, regardless of keyword duplicates.
-    ident=(st,row["sku"])
-    if ident in seen:continue
-    seen.add(ident)
+    identity=(st,row["sku"])
+    if identity in seen:continue
+    seen.add(identity)
     try:
      inserted=pw.price(cx,row,run_id)[2]
      saved+=inserted;total+=inserted
      cx.execute("INSERT OR REPLACE INTO hd_stock_observations VALUES(?,?,?,?,?,?,?)",
-       (st,row["sku"],row["product_id"],row["quantity"],row["stock_status"],row["observed_at"],run_id))
+      (st,row["sku"],row["product_id"],row["quantity"],
+       row["stock_status"],row["observed_at"],run_id))
      stock_n+=int(row["stock_status"]!="not_verified")
     except (ValueError,KeyError,TypeError,sqlite3.Error) as exc:
-     messages.append("invalid sourced product "+str(exc)[:50])
-   # No retry and no concurrent requests. Be gentle.
+     messages.append("Invalid product record: "+str(exc)[:70])
+   if partial:
+    # Never interpret a partial response as exhaustive coverage.
+    break
+   status="ok_partial_scope" if saved else "no_prices"
    if requester is request:time.sleep(1.4)
-  status=("refused" if refused else "ok_partial_scope" if saved else
-          "no_prices" if valid else "error")
-  info={"attempted":attempted,"valid_responses":valid,"product_rows":products,
-        "price_rows":saved,"stock_rows":stock_n,"status":status,"reason":"; ".join(messages)[:250]}
+  info={"attempted":attempted,"valid_responses":valid,
+        "product_rows":products,"price_rows":saved,"stock_rows":stock_n,
+        "status":status,"reason":"; ".join(messages)[:250]}
   results[st]=info
-  cx.execute("INSERT OR REPLACE INTO hd_check_history VALUES(?,?,?,?,?,?,?,?,?,?)",
-     (run_id,st,attempted,valid,products,saved,stock_n,status,info["reason"],now()))
-  try:
-   import free_sources
-   free_sources.record_health(cx,"Home Depot "+st,"online storefront query",status,saved,info["reason"],ENDPOINT)
-  except (ImportError,sqlite3.Error):pass
-  if refused:
-   until=(datetime.now(timezone.utc)+timedelta(hours=24)).isoformat()
-   cx.execute("INSERT OR REPLACE INTO hd_cooldown VALUES('global',?,?)",(until,"access refusal on "+st))
-   break
+  record_check(cx,run_id,st,info)
  cx.commit()
- return {"status":"refused" if refused else "partial_scope" if total else "no_price_data",
-         "saved":total,"stores":results,"queries":combos}
+ statuses={k:v["status"] for k,v in results.items()}
+ if all(v=="ok_partial_scope" for v in statuses.values()):
+  overall="partial_scope"  # Selected SKUs, never full catalog.
+ elif any(v in ("refused","rate_limited","cooldown","partial_response","error") for v in statuses.values()):
+  overall="partial"
+ else:
+  overall="partial_scope" if total else "no_price_data"
+ return {"status":overall,"saved":total,"stores":results,"queries":combos}
