@@ -1,96 +1,66 @@
-# Penny Watch NWLA — $0 GitHub Free Edition (NO Cloudflare)
+# Penny Watch NWLA — GitHub Free
 
-**What's included:** a fully runnable, static, mobile-friendly website; a Python standard-library ingestion and price-analysis engine; SQLite historical database; compressed downloadable CSV snapshots for **each recorded scan**; broad authorized catalog discovery; deep-markdown and exact-SKU penny-lead rankings; sourced regional report imports; exact-variant retailer comparisons; a printable Bossier-first Monday list; optional Telegram notifications; and GitHub Actions schedules for **5:00 AM and 1:00 PM America/Chicago**, plus Monday preparation at **5:45 AM**.
+A public, mobile-friendly, read-only dashboard for tracking sourced Home Depot clearance prices and community penny leads across three NW Louisiana stores. **No Cloudflare, Replit, TinyFish or paid hosting is required.**
 
-**What is NOT included:** a guaranteed all-Home-Depot-item scanning API. No authorized unrestricted, store-specific Home Depot product/price feed has been supplied. Without one, the site starts with no verified observations; schedules record missing coverage, not false success. **It is not deployed yet.** It does not access Facebook private groups or circumvent Home Depot restrictions.
+**Important status:** This repo contains the website and a scheduled collection engine. It has no configured Home Depot price or catalog feeds. It cannot and does not claim to scan the complete online or physical Home Depot inventory. The database starts empty. All data published by GitHub Pages is **public**.
 
-## The cost and visibility tradeoff
+## Stores
 
-- **GitHub Free**: $0 (public repository + GitHub Pages + standard hosted GitHub Actions); no Cloudflare, Replit, or TinyFish. GitHub Actions currently supports timezone-aware schedules; scheduled starts can be delayed or omitted during high load.
-- **GitHub Pages on GitHub Free must be public.** Its displayed inventory/prices, ZIP exports, and repository history are visible to anyone. Do not upload personal information, private Facebook messages, purchase receipts, passwords, client data, internal notes, or credentials. All price data is assumed public-source-only. Secrets remain private in GitHub Actions repository secrets.
-- GitHub Pages recommends **~1 GB max published site size**. The package preflights at 800 MB and stops rather than deleting archives. GitHub's repository history also grows with each commit. A lifetime unlimited archive of enormous full-catalog twice-daily scans cannot be guaranteed indefinitely for $0. An optional local-only setup uses your own computer and storage.
-- GitHub Free has a **2,000 hosted-runner minutes/month allowance for private repositories**; regular standard runners for public repositories are free within policy. The collector uses only Python's built-in modules. Source provider costs, if any, are not included.
+- Bossier City, Airline Drive — 0364
+- Shreveport, Bert Kouns — 0356
+- West Shreveport, Pines Road — 0381
 
-Official references:
-- https://docs.github.com/en/pages/getting-started-with-github-pages/quickstart
-- https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
-- https://docs.github.com/en/actions/how-tos/troubleshoot-workflows
-- https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits
-- https://www.homedepot.com/c/Terms_of_Use
+## First-time deployment
 
-## Publish with a free GitHub account (no coding subscription)
+1. In GitHub, open **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source. This one-time setting is required.
+2. Open **Actions → Penny Watch - Scan and Publish**. Confirm a run completes successfully. Use **Run workflow** if needed.
+3. GitHub will show the published URL under **Settings → Pages** after successful deployment. There is no verified site URL until that happens.
+4. The site initially displays **zero verified prices**. This is intentional; no demo prices masquerade as live inventory.
 
-1. Sign up/sign in at https://github.com/ . Create a **PUBLIC** repository called `penny-watch-nwla` with default branch `main`. A free personal account is sufficient.
-2. Unzip and upload **the contents** of this folder (including the hidden `.github` directory) to the root of that repository. Don't upload just the ZIP as a single file.
-3. Under the repository's **Settings → Pages → Build and deployment**, choose **GitHub Actions** as the source. The site is published to a `github.io` URL automatically after a workflow succeeds. Do not assume a URL until GitHub displays it.
-4. Under **Actions**, choose **Penny Watch — collect and publish**, then **Run workflow** to produce your first run, dashboard, and archive. With no feeds configured it correctly shows `source_unconfigured`, `0` saved prices.
-5. In **Settings → Secrets and variables → Actions**, add only the feeds you have permission to collect. Required names are below. Never put credentials in repository files, public JavaScript, site pages, CSVs, or chat.
-6. After a sourced feed is connected, **Run workflow** again to ingest real records. Confirm each of the 3 stores has a nonzero stored count and a downloadable scan ZIP. Treat missing stores as partial coverage.
-7. Optionally set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as repository secrets after creating a free Telegram bot, starting a conversation with it, and obtaining the chat ID. The workflow sends scan reports and the Monday checklist when configured. If not configured, the notification status is `not_configured`.
-8. Before using both this and the **existing ChatGPT Penny Watch automations** on the same data, retire the duplicates or keep them explicitly separate. The existing ChatGPT-hosted Site will NOT be automatically migrated or connected by publishing this repository.
+## Supported data sources
 
-### Feed secret names
+Configure repository Actions **secrets** with HTTPS URLs only for feeds you are permitted to access:
 
-For Bossier City #0364, Bert Kouns #0356 and Pines Road #0381:
+- `CATALOG_FEED_0364`, `CATALOG_FEED_0356`, `CATALOG_FEED_0381`: JSON or CSV lists of products with an exact SKU.
+- `PRICE_FEED_0364`, `PRICE_FEED_0356`, `PRICE_FEED_0381`: JSON or CSV current prices for that exact store and SKU. Timestamp and original source link are required.
+- `REPORTS_FEED_URL`: permitted public penny-report feed, with SKU, state, source URL and report date.
+- `RETAIL_FEED_URL`: optional same-variant retailer comparisons.
+- `AUTH_FEED_BEARER`: optional shared token used to authenticate permitted feeds.
 
-- **Broad discovery:** `CATALOG_FEED_0364`, `CATALOG_FEED_0356`, `CATALOG_FEED_0381`
-- **5 AM + 1 PM price scans:** `PRICE_FEED_0364`, `PRICE_FEED_0356`, `PRICE_FEED_0381`
-- **250-priority-SKU recheck:** `PRIORITY_FEED_0364`, `PRIORITY_FEED_0356`, `PRIORITY_FEED_0381`
-- **PennyCentral/Spotted/accessible reports:** `REPORTS_FEED_URL`
-- **Identical-variant retailer offers:** `RETAIL_FEED_URL`
-- **Optional shared bearer token for authorized sources:** `AUTH_FEED_BEARER`
+There is no built-in unrestricted Home Depot scraper. Permission to view a webpage is not equivalent to permission to scrape it in bulk. Do not bypass access controls or collect private Facebook group posts.
 
-Feeds must be **owner-authorized HTTPS JSON/CSV feeds**. Catalog feeds return `items` with exact `sku`, `name`, optional `upc`, brand, category and product ID. Price feeds return `items` with exact `store_id`, `sku`, `price`, `price_type`, `source`, `source_url`, and timezone-aware `observed_at` and may specify an `expected_count`. Priority feeds accept HTTPS POST `{"store_id":"0364","skus":["..."]}` and must return the same price fields. All 3 store coverage requires all stores to have expected counts and observed rows. Source collection is **not activated by merely having this code**.
+For CSV imports, put valid sourced files under `imports/` prefixed by `catalog-`, `prices-`, `reports-` or `comparisons-`. Source-column templates are in `samples/`. Never upload fictitious sample rows to live imports.
 
-An example public-facing feed response (illustrative only):
+A valid price observation needs `store_id`, `sku`, `price`, `price_type`, `source`, `source_url`, and ISO 8601 `observed_at` with timezone. For example, `price_type` can be `online`, `clearance`, `shelf`, `pos`, or `unknown`. The distinction matters: online or community prices do not verify an in-store point-of-sale penny transaction. Regular prices are optional; the dashboard will not fabricate missing discount baselines.
 
-```json
-{"expected_count": 1, "items": [{"store_id":"0364", "sku":"1234567890", "name":"ILLUSTRATIVE ONLY", "price":12.97, "regular_price":30.00, "price_type":"online", "source":"Authorized feed", "source_url":"https://example.com/not-real", "observed_at":"2026-11-14T11:00:00Z"}]}
-```
+## Schedule and archive
 
-**Do not assume a public catalog URL is an authorized feed.** Home Depot's terms and technical defenses restrict automated acquisition in certain circumstances. The app does not defeat login walls, CAPTCHA, rate limits, blocked robots, or private-group access. It does not buy anything or contact stores.
+The workflow contains timezone-aware schedules for **5:00 AM** and **1:00 PM** in America/Chicago, and a Monday checklist refresh at **5:45 AM**. GitHub Actions can start late or skip scheduled occurrences. The collector runs only when GitHub executes the workflow.
 
-## Import public/authorized CSV records without a feed
+Collected observations are stored in an append-only SQLite price table and committed back into the public repository. Every recorded collection produces a ZIP with a spreadsheet-compatible CSV under `docs/exports/`. The dashboard provides historical and current CSV links. GitHub storage is not infinite; a full-product, twice-daily, multi-year archive may eventually require a different data-storage design.
 
-For occasional imports, upload CSVs inside the repository's `imports` folder using filenames beginning `catalog-`, `prices-`, `reports-` or `comparisons-`, then use **Actions → Run workflow**. Columns are in `samples/`. Imported files are de-duplicated by checksum. **Do not copy the illustrative sample files into `imports`**; they contain intentionally fake test data. Once committed to a public repository, files and history remain public; only use publicly shareable sourced records.
+The workflow distinguishes `source_unconfigured`, `no_prices`, `partial`, `partial_unknown_coverage` and `complete_tracked_scope`. Even `complete_tracked_scope` means only that the **provided tracked sources** were captured; it does not establish all Home Depot inventory was checked.
 
-- `catalog-*`: expands your SKU universe without asserting a price.
-- `prices-*`: exact observed store prices with a source URL, price type and timestamp.
-- `reports-*`: public, properly sourced community penny reports; exact SKU matching only. A nationwide penny report does NOT prove a local register price.
-- `comparisons-*`: competitor pricing for the exact same variant, including shipping costs.
+The Monday list is sorted Bossier City first. In-store verification notes are stored only on the device/browser where they are entered; they do **not** synchronize to GitHub. You can download checklist CSVs for offline use.
 
-## Storage, history and integrity
+## Current limitations
 
-- The canonical SQLite database lives in `data/penny_watch.sqlite` and is committed after successful workflows, along with generated site data and ZIP archives.
-- Each scan produces `docs/exports/<run-id>.zip` containing one Excel/Sheets-compatible CSV. The site shows a direct ZIP download for each run; **even empty runs have an explicit archived zero-row CSV** rather than pretending full inventory was scanned.
-- Scan rows are append-only in `ticks`. The `current` table stores the most recent price separately; the website exposes price-history charts via SKU-hashed shards.
-- The dashboard explicitly shows expected vs observed store coverage. A successful tracked-source run is called `complete_tracked_scope`; it **never** means every Home Depot product was captured. First observations without a valid baseline do not receive a fabricated discount percentage.
-- GitHub Pages is read-only. In-store verification notes entered on the webpage are stored in **the current browser's localStorage only**; they are not synchronized. Export findings separately if you need them across devices.
-- All sources, regional reports, and cross-retailer listings preserve source links and observations; reporting confidence and visit priority are separate from local checkout confirmation.
-- The 800 MB safety check runs AFTER committing archives to the repository: it stops Pages publication before the cap, but does not silently erase newly collected records. For large inventories, move archives to a self-managed local backup and use the local mode below; the free public repository is not infinite storage.
+- No verified price feeds are connected.
+- No comprehensive Home Depot inventory source or local checkout-price API is established.
+- PennyCentral, Spotted, public Facebook and retail comparisons require permitted feeds/imports; they are not automatically collected merely by installing the website.
+- Telegram or other push/email alerts are **not connected or active** in this repository; scheduled reports appear in GitHub Actions logs and website history when runs complete.
+- A priority-only SKU collector is not yet connected. The current engine fetches configured catalog/price sources, then ranks observed clearance candidates.
+- The site and all exports are public on GitHub Free. Never add secrets, client records, receipts, private reports or personal information to the repository.
+- This is separate from the pre-existing ChatGPT-hosted Penny Watch site and automations. Publishing it does not migrate or repair the other system.
 
-## Local-only private mode (no GitHub required)
+## Verification
 
-Install Python 3.10+ on a computer that remains on during collections. From the project directory:
+A smoke-test suite (`python -m unittest discover -s tests -v`) validates source-unconfigured handling, archive ZIP generation, and store/SKU validation. The GitHub workflow runs these tests and Python syntax checking before collecting or publishing.
 
-```sh
-python src/pennywatch.py init
-python src/pennywatch.py build
-python src/pennywatch.py serve
-```
+For manual local use, run `python src/pennywatch.py init` and `python src/pennywatch.py build`, then serve the `docs/` directory with a local static web server. Without configured feeds, the system accurately reports no sourced prices.
 
-Open `http://127.0.0.1:8000/` in that computer's browser. Schedule `python src/pennywatch.py collect --slot manual` with Windows Task Scheduler (daily 5:00 AM and 1:00 PM) or cron on a Mac/Linux machine, and schedule `python src/pennywatch.py monday` Monday 5:45 AM. Set authorized source environment variables locally. The database, exports and in-store notes stay on that machine; local mode has no free cloud website for access from other devices. Data collection still requires configured authorized sources. If the computer sleeps or is off, scans do not run.
+## Documentation
 
-## Automated tests
-
-`python -m unittest discover -s tests -v` checks three-store validity, exact-SKU matching, duplicate protection, the discount baseline, source/report provenance, snapshot ZIP integrity, no-fake-completeness on missing stores, history shard reconstruction, and Central Time schedule. `python src/pennywatch.py build` produces the static `docs` site. The site has no runtime backend, login, or paid dependencies.
-
-## Limitations to read before using
-
-1. GitHub Actions scheduled starts are best effort, not guaranteed precise or always delivered at 5:00/13:00; read the workflow logs for execution timestamps.
-2. GitHub Pages Free sites are public. Never upload proprietary or personal information.
-3. There is no unlimited catalog API or full stock/checkout database. A complete online price inventory is not established.
-4. Large repository histories and many scan ZIPs will eventually exceed free practical storage limits. Publishing stops with explicit warning rather than silently dropping history.
-5. Community reports (PennyCentral, Spotted, public Facebook posts) are clues, not confirmed store-specific penny transactions.
-6. Retail comparison requires exact variant and shipping, not just matching titles or model families.
-7. The old ChatGPT Site's failed zero-row ingestion is not repaired by creating this new separate codebase.
+- [GitHub Pages](https://docs.github.com/en/pages)
+- [GitHub Actions scheduled workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
+- [Home Depot Terms of Use](https://www.homedepot.com/c/Terms_of_Use)
