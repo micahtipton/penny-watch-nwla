@@ -13,7 +13,7 @@ from datetime import datetime,timezone,timedelta
 from urllib.parse import urlparse
 import pennywatch as pw
 
-ENDPOINT="https://apionline.homedepot.com/federation-gateway/graphql"
+ENDPOINT="https://apionline.homedepot.com/federation-gateway/graphql?opname=searchModel"
 QUERY="""query searchModel($storeId:String,$startIndex:Int,$pageSize:Int,$orderBy:ProductSort,$filter:ProductFilter,$isBrandPricingPolicyCompliant:Boolean,$keyword:String,$navParam:String,$storefilter:StoreFilter=ALL,$channel:Channel=DESKTOP,$additionalSearchParams:AdditionalParams){searchModel(keyword:$keyword,navParam:$navParam,storefilter:$storefilter,isBrandPricingPolicyCompliant:$isBrandPricingPolicyCompliant,storeId:$storeId,channel:$channel,additionalSearchParams:$additionalSearchParams){searchReport{totalProducts}products(startIndex:$startIndex,pageSize:$pageSize,orderBy:$orderBy,filter:$filter){itemId identifiers{brandName modelNumber canonicalUrl productLabel storeSkuNumber itemId upc productType}pricing(storeId:$storeId,isBrandPricingPolicyCompliant:$isBrandPricingPolicyCompliant){value original promotion{type dollarOff percentageOff promotionTag savingsCenter}specialBuy clearance{value dollarOff percentageOff}}fulfillment{fulfillmentOptions{type services{type locations{inventory{isOutOfStock isInStock isLimitedQuantity quantity}isAnchor locationId storeName type}}}}availabilityType{type discontinued buyable status}}}}"""
 KEYWORDS=("Husky","Ryobi","Milwaukee","Glacier Bay","Hampton Bay","HDX","Home Decorators Collection","DeWalt","Commercial Electric","Defiant","Everbilt","Westinghouse")
 SCHEMA="""
