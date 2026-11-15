@@ -17,6 +17,27 @@ A public, mobile-friendly, read-only dashboard for tracking sourced Home Depot c
 3. GitHub will show the published URL under **Settings → Pages** after successful deployment. There is no verified site URL until that happens.
 4. The site initially displays **zero verified prices**. This is intentional; no demo prices masquerade as live inventory.
 
+## Free-source integrations (November 2026)
+
+The **Free Source Reports** tab distinguishes community reports from actual local prices:
+
+| Source | Integration | Notes |
+|---|---|---|
+| [Penny Recon](https://www.pennyrecon.com/) | Automated twice-daily published JSON import; also refreshed on deployment | Reports, regional signal, SKU, and source attribution. No store-specific price. Feed freshness and errors recorded. |
+| [PennyCentral](https://www.pennycentral.com/penny-list) | Manual sourced export adapter | Its [terms](https://www.pennycentral.com/terms-of-service) explicitly prohibit scraping; no automated extractor. Only upload data you are permitted to use. |
+| [PennyLoot](https://www.pennyloot.com/) | Manual sourced export adapter | No publicly authorized bulk feed verified. |
+| [HDScanner](https://github.com/KenStager/HDScanner) | Free CSV/JSON export import | Run separately only where access is permitted. Correct store and exact store SKU are required. |
+| [2scraper Home Depot](https://github.com/2scraper/homedepot-scraper) | Free CSV/JSON export import | Maps the distinct store_sku field, **not** its misleading internet product field named sku. Rejects unrelated stores. |
+| [Omkar Home Depot](https://github.com/omkarcloud/homedepot-scraper) | Free CSV/JSON export import | Requires an exact store_sku and store_id; missing values are rejected, not guessed. |
+
+To import an export through GitHub, use **Add file → Upload files** into the repository imports folder. Name files using one of these prefixes: 2scraper-, hdscanner-, omkar-, pennycentral-, or pennyloot-, with a .csv or .json extension. Export files need a timestamp including timezone, exact store number, true store SKU, actual observed price, and a direct HTTPS evidence link. Do not use another store's price as your own. Community files need exact SKU, date and original report link.
+
+The collector never tries to defeat anti-bot protections, paid access gates, or websites' restrictions. No scraping from private Facebook groups has been installed. Other free sources can be added when they publish a permitted structured feed.
+
+**Data reliability:** Penny Recon's reported score is **not** an independent verification. Only store-specific records get store prices. A community SKU can be a useful lead without being available, marked down, or priced at a penny at any of the three local stores.
+
+**Current automatic status:** Penny Recon feed is wired for automatic attempts at the scheduled collection runs. Whether GitHub's cloud runner can reach it must be verified in workflow history. HDScanner, 2scraper, Omkar, PennyCentral and PennyLoot are integrated through export-import, not automatically scraped or run on GitHub.
+
 ## Supported data sources
 
 Configure repository Actions **secrets** with HTTPS URLs only for feeds you are permitted to access:
@@ -47,7 +68,7 @@ The Monday list is sorted Bossier City first. In-store verification notes are st
 
 - No verified price feeds are connected.
 - No comprehensive Home Depot inventory source or local checkout-price API is established.
-- PennyCentral, Spotted, public Facebook and retail comparisons require permitted feeds/imports; they are not automatically collected merely by installing the website.
+- Penny Recon is the only built-in automated community feed; PennyCentral, PennyLoot, Facebook and retailer comparisons require permitted sourced exports or feeds. Their existence does not guarantee automated collection.
 - Telegram or other push/email alerts are **not connected or active** in this repository; scheduled reports appear in GitHub Actions logs and website history when runs complete.
 - A priority-only SKU collector is not yet connected. The current engine fetches configured catalog/price sources, then ranks observed clearance candidates.
 - The site and all exports are public on GitHub Free. Never add secrets, client records, receipts, private reports or personal information to the repository.
