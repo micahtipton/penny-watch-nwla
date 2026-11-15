@@ -76,7 +76,7 @@ jobs:
         run: |
           git config user.name 'Penny Watch Bot'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/penny_watch.sqlite docs/data docs/history docs/exports
+          git add -A data docs
           if ! git diff --cached --quiet; then
             git commit -m "Archive Penny Watch scan [skip ci]"
             git push
