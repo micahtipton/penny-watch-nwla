@@ -144,7 +144,37 @@ class HomeDepotCheckTests(unittest.TestCase):
   with self.assertRaises(hd.InvalidResponse) as x:
    hd.parse_product_response(206,'HTTP/2 206\r\ncontent-type: application/json\r\n\r\n',message)
   self.assertNotIsInstance(x.exception,hd.RemoteRefusal)
-  self.assertIn("error_code=GRAPHQL_VALIDATION_FAILED",str(x.exception))
+  self.assertIn("code=GRAPHQL_VALIDATION_FAILED",str(x.exception))
+  self.assertIn("message_class=schema_or_query",str(x.exception))
+ def test_generic_gateway_error_identified_without_leaking_payload(self):
+  import json
+  payload={"errors":[{"message":"Generic Errors API","extensions":{"code":"UNKNOWN"}}],"data":None}
+  raw=json.dumps(payload)
+  with self.assertRaises(hd.GatewayError) as ctx:
+   hd.parse_product_response(206,"HTTP/2 206\r\ncontent-type: application/json\r\n\r\n",raw)
+  output=str(ctx.exception)
+  self.assertIn("generic gateway error",output)
+  self.assertIn("message_class=generic_error",output)
+  self.assertIn("payload_hash=",output)
+  self.assertNotIn("Generic Errors API",output)
+  self.assertNotIn(raw,output)
+ def test_generic_error_does_not_disable_other_stores(self):
+  import json,os
+  c=db()
+  calls=[]
+  def responder(st,key):
+   calls.append(st)
+   if st=="0364":
+    payload={"errors":[{"message":"Generic Errors API"}]}
+    return hd.parse_product_response(206,"HTTP/2 206\r\n\r\n",json.dumps(payload))
+   return model(st)
+  with patch.dict(os.environ,{"PW_HD_MAX_QUERIES":"3"}):
+   output=hd.scan(c,"test-generic",requester=responder)
+  self.assertEqual(calls,list(pw.STORES))
+  self.assertEqual(output["saved"],2)
+  self.assertEqual(output["stores"]["0364"]["status"],"gateway_error")
+  self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],0)
+  c.close()
  def test_graphql_explicit_rate_limit_honors_retry_after(self):
   import json
   msg=json.dumps({'errors':[{'message':'Too many requests','extensions':{'code':'RATE_LIMITED'}}]})
