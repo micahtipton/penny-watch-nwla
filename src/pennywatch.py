@@ -152,6 +152,17 @@ def collect(run):
    try:items,_=load_url(os.environ[key]);import_items(cx,kind,items,run)
    except Exception as e:errors.append(f'{key}: {type(e).__name__} {str(e)[:130]}')
  import_files(cx,run)
+ # Bounded three-store online storefront check. Stops on HTTP refusal.
+ try:
+  import hd_live
+  hd_live_result=hd_live.scan(cx,run)
+  print('HD ONLINE PRICE CHECK: '+json.dumps(hd_live_result))
+  if hd_live_result['status']=='refused':
+   errors.append('Home Depot access refused; online prices not verified for all stores')
+ except ModuleNotFoundError:
+  pass
+ except Exception as e:
+  errors.append('Home Depot check: '+type(e).__name__+': '+str(e)[:130])
  # Public community feed supplies leads, never store-specific prices.
  try:
   import free_sources as fs
@@ -226,6 +237,13 @@ def build():
  try:
   import free_sources as fs
   fs.extend_dashboard(cx,payload)
+  try:
+   import hd_live
+   hd_live.init(cx)
+   payload['hd_scan_checks']=[dict(row) for row in cx.execute('SELECT * FROM hd_check_history ORDER BY checked_at DESC LIMIT 60')]
+   payload['hd_stock']=[dict(row) for row in cx.execute('SELECT * FROM hd_stock_observations ORDER BY checked_at DESC LIMIT 500')]
+  except ModuleNotFoundError:
+   pass
  except Exception as e:
   payload['free_sources_error']=str(e)[:240]
  (DOCS/'data'/'dashboard.json').write_text(json.dumps(payload,ensure_ascii=False,default=str))
