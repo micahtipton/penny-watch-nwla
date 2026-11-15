@@ -1,4 +1,5 @@
 import sqlite3,sys,unittest
+from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
@@ -60,7 +61,7 @@ class HomeDepotCheckTests(unittest.TestCase):
     raise hd.RemoteRefusal('HTTP 403',kind='refused',retry_after_seconds=43200)
    return model(st)
   import os
-  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+  with patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
    output=hd.scan(c,'test-refused',requester=refused_first)
   self.assertEqual(output['status'],'partial')
   self.assertEqual(calls,list(pw.STORES))
@@ -78,7 +79,7 @@ class HomeDepotCheckTests(unittest.TestCase):
    if st=='0364':out['_partial_http']=True
    return out
   import os
-  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+  with patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
    output=hd.scan(c,'test-206-valid',requester=partial_first)
   self.assertEqual(output['status'],'partial')
   self.assertEqual(output['saved'],3)
@@ -95,7 +96,7 @@ class HomeDepotCheckTests(unittest.TestCase):
     return hd.parse_product_response(206,'HTTP/2 206\\r\\ncontent-range: bytes 0-5/100\\r\\n\\r\\n','{"broken"')
    return model(st)
   import os
-  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+  with patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
    output=hd.scan(c,'test-206-malformed',requester=bad_first)
   self.assertEqual(output['status'],'partial')
   self.assertEqual(output['saved'],2)
@@ -110,7 +111,7 @@ class HomeDepotCheckTests(unittest.TestCase):
     return hd.parse_product_response(429,'HTTP/2 429\\r\\nretry-after: 1800\\r\\n\\r\\n','')
    return model(st)
   import os
-  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+  with patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
    output=hd.scan(c,'test-rate',requester=one_limited)
   self.assertEqual(output['saved'],2)
   self.assertEqual(output['stores']['0356']['status'],'rate_limited')
@@ -121,7 +122,7 @@ class HomeDepotCheckTests(unittest.TestCase):
   c=db()
   c.execute("INSERT INTO hd_cooldown VALUES('global','2999-01-01T00:00:00+00:00','old 206')")
   import os
-  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+  with patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
    output=hd.scan(c,'test-legacy-block',requester=lambda st,key:model(st))
   self.assertEqual(output['saved'],3)
   self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],0)
