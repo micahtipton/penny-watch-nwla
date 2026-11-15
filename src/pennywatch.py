@@ -152,6 +152,25 @@ def collect(run):
    try:items,_=load_url(os.environ[key]);import_items(cx,kind,items,run)
    except Exception as e:errors.append(f'{key}: {type(e).__name__} {str(e)[:130]}')
  import_files(cx,run)
+ # Public community feed supplies leads, never store-specific prices.
+ try:
+  import free_sources as fs
+  fs.ensure(cx)
+  if os.environ.get('PW_FETCH_PENNYRECON','1')!='0':
+   feed_result=fs.sync_recon(cx)
+   print('Community feed: '+json.dumps(feed_result))
+ except Exception as e:
+  errors.append('community integration: '+str(e)[:140])
+ # Source exports require exact local SKU, store, timestamp and evidence URL.
+ try:
+  import source_imports
+  import_result=source_imports.import_exports(cx,run)
+  if import_result:print('Imported source exports: '+json.dumps(import_result))
+ except Exception as e:
+  errors.append('source imports: '+str(e)[:140])
+ # Count saved observations, including source imports (not just direct feeds).
+ counts={st:cx.execute('SELECT COUNT(*) FROM observations WHERE run_id=? AND store=?',(run,st)).fetchone()[0] for st in STORES}
+ if sum(counts.values())>0:configured=True
  archive=snapshot(cx,run)
  total=sum(counts.values())
  # One SKU observed in earlier runs does not count as sampled this run.
@@ -200,6 +219,11 @@ def build():
   r=dict(x);r['observed_by_store']=json.loads(r['observed_by_store']);r['expected_by_store']=json.loads(r['expected_by_store']);runs.append(r)
  counts={s:cx.execute('SELECT COUNT(*) FROM products WHERE store=?',(s,)).fetchone()[0] for s in STORES}
  payload={'tracked_count':sum(counts.values()),'observation_count':len(observations),'counts':counts,'runs':runs,'sources':{k:bool(os.environ.get(k)) for k in SOURCE_KEYS},'leads':leads[:500],'clearance':clearance[:500],'monday':monday}
+ try:
+  import free_sources as fs
+  fs.extend_dashboard(cx,payload)
+ except Exception as e:
+  payload['free_sources_error']=str(e)[:240]
  (DOCS/'data'/'dashboard.json').write_text(json.dumps(payload,ensure_ascii=False,default=str))
  writecsv(DOCS/'data'/'current-prices.csv',['store','sku','name','price','drop_pct','source'],[(x['store_id'],x['sku'],x['name'],x['price'],x['drop_pct'],x['source_url']) for x in leads])
  writecsv(DOCS/'data'/'penny-leads.csv',['store','sku','name','price','confidence','reports','source'],[(x['store_id'],x['sku'],x['name'],x['price'],x['confidence'],x['report_count'],x['source_url']) for x in leads if x['report_count']])
