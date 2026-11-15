@@ -93,7 +93,8 @@ jobs:
           git add -A data docs
           if ! git diff --cached --quiet; then
             git commit -m "Archive Penny Watch scan [skip ci]"
-            git push
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
       - name: Validate Pages size
         run: |
