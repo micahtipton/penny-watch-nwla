@@ -51,17 +51,91 @@ class HomeDepotCheckTests(unittest.TestCase):
    if old is None:os.environ.pop('PW_HD_MAX_QUERIES',None)
    else:os.environ['PW_HD_MAX_QUERIES']=old
   c.close()
- def test_refusal_stops_other_stores_and_sets_cooldown(self):
+ def test_refusal_pauses_only_affected_store(self):
   c=db()
   calls=[]
-  def blocked(st,key):
+  def refused_first(st,key):
    calls.append(st)
-   raise hd.RemoteRefusal('403 denied')
-  output=hd.scan(c,'test-refused',requester=blocked)
-  self.assertEqual(output['status'],'refused')
-  self.assertEqual(calls,['0364'])
-  self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],1)
+   if st=='0364':
+    raise hd.RemoteRefusal('HTTP 403',kind='refused',retry_after_seconds=43200)
+   return model(st)
+  import os
+  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+   output=hd.scan(c,'test-refused',requester=refused_first)
+  self.assertEqual(output['status'],'partial')
+  self.assertEqual(calls,list(pw.STORES))
+  self.assertEqual(c.execute("SELECT key FROM hd_cooldown").fetchone()[0],'store:0364')
+  self.assertEqual(output['saved'],2)
+  self.assertEqual(output['stores']['0364']['status'],'refused')
+  self.assertEqual(output['stores']['0356']['status'],'ok_partial_scope')
   c.close()
+ def test_http_206_with_valid_json_is_partial_not_a_refusal(self):
+  c=db()
+  calls=[]
+  def partial_first(st,key):
+   calls.append(st)
+   out=model(st)
+   if st=='0364':out['_partial_http']=True
+   return out
+  import os
+  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+   output=hd.scan(c,'test-206-valid',requester=partial_first)
+  self.assertEqual(output['status'],'partial')
+  self.assertEqual(output['saved'],3)
+  self.assertEqual(output['stores']['0364']['status'],'partial_response')
+  self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],0)
+  self.assertEqual(calls,list(pw.STORES))
+  c.close()
+ def test_http_206_malformed_json_continues_to_other_stores(self):
+  c=db()
+  calls=[]
+  def bad_first(st,key):
+   calls.append(st)
+   if st=='0364':
+    return hd.parse_product_response(206,'HTTP/2 206\\r\\ncontent-range: bytes 0-5/100\\r\\n\\r\\n','{"broken"')
+   return model(st)
+  import os
+  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+   output=hd.scan(c,'test-206-malformed',requester=bad_first)
+  self.assertEqual(output['status'],'partial')
+  self.assertEqual(output['saved'],2)
+  self.assertEqual(output['stores']['0364']['status'],'partial_response')
+  self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],0)
+  self.assertEqual(calls,list(pw.STORES))
+  c.close()
+ def test_429_retry_after_stops_only_that_store(self):
+  c=db()
+  def one_limited(st,key):
+   if st=='0356':
+    return hd.parse_product_response(429,'HTTP/2 429\\r\\nretry-after: 1800\\r\\n\\r\\n','')
+   return model(st)
+  import os
+  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+   output=hd.scan(c,'test-rate',requester=one_limited)
+  self.assertEqual(output['saved'],2)
+  self.assertEqual(output['stores']['0356']['status'],'rate_limited')
+  self.assertEqual(c.execute("SELECT key FROM hd_cooldown").fetchone()[0],'store:0356')
+  self.assertEqual(output['stores']['0381']['status'],'ok_partial_scope')
+  c.close()
+ def test_old_global_cooldown_is_cleared(self):
+  c=db()
+  c.execute("INSERT INTO hd_cooldown VALUES('global','2999-01-01T00:00:00+00:00','old 206')")
+  import os
+  with __import__('unittest').mock.patch.dict(os.environ,{'PW_HD_MAX_QUERIES':'3'}):
+   output=hd.scan(c,'test-legacy-block',requester=lambda st,key:model(st))
+  self.assertEqual(output['saved'],3)
+  self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],0)
+  c.close()
+ def test_206_response_classification_and_genuine_refusal(self):
+  valid=__import__('json').dumps({'data':{'searchModel':model()}})
+  accepted=hd.parse_product_response(206,'HTTP/2 206\\r\\ncontent-type: application/json\\r\\n\\r\\n',valid)
+  self.assertEqual(accepted['products'][0]['itemId'],'300000008')
+  self.assertTrue(accepted['_partial_http'])
+  with self.assertRaises(hd.PartialContent):
+   hd.parse_product_response(206,'HTTP/2 206\\r\\n\\r\\n','{"incomplete"')
+  with self.assertRaises(hd.RemoteRefusal) as ctx:
+   hd.parse_product_response(206,'HTTP/2 206\\r\\n\\r\\n','<html>Verify you are human</html>')
+  self.assertEqual(ctx.exception.kind,'refused')
  def test_http_206_diagnostics_are_metadata_only(self):
   headers=("HTTP/2 206\r\ncontent-type: application/json\r\n"
            "content-range: bytes 0-19/100\r\nretry-after: 120\r\n"
