@@ -4,7 +4,7 @@
 Uses the standard Home Depot storefront GraphQL response shape documented in
 MIT-licensed HDScanner: https://github.com/KenStager/HDScanner
 No proxies, browser impersonation, challenge-solving, credentials, retry storms,
-or rate-limit workarounds. HTTP 403/206/429 stops the scan immediately.
+or rate-limit workarounds. HTTP 206 is inspected, not automatically cooled down.
 Results are ONLINE prices scoped to a requested store, not confirmed POS prices.
 """
 from __future__ import annotations
@@ -33,8 +33,13 @@ CREATE TABLE IF NOT EXISTS hd_cooldown(
  key TEXT PRIMARY KEY,until_utc TEXT NOT NULL,reason TEXT
 );
 """
-class RemoteRefusal(RuntimeError):pass
+class RemoteRefusal(RuntimeError):
+ def __init__(self,message,kind="refused",retry_after_seconds=None):
+  super().__init__(message)
+  self.kind=kind
+  self.retry_after_seconds=retry_after_seconds
 class InvalidResponse(RuntimeError):pass
+class PartialContent(InvalidResponse):pass
 
 def init(cx):
  cx.executescript(SCHEMA)
@@ -45,48 +50,110 @@ def query_variables(store,keyword):
  return {"storeId":store,"startIndex":0,"pageSize":24,"orderBy":{"field":"BEST_MATCH","order":"ASC"},
  "filter":{},"isBrandPricingPolicyCompliant":False,"keyword":keyword,"navParam":None,
  "storefilter":"IN_STORE","channel":"DESKTOP","additionalSearchParams":{"deliveryZip":"","multiStoreIds":[]}}
-def response_diagnostics(header_text, body):
- """Safe HTTP metadata only; do not store response bodies, cookies or secrets."""
- blocks=str(header_text or '').replace('\r','').split('\n\n')
- last=next((b for b in reversed(blocks) if b.lstrip().startswith('HTTP/')), '')
- headers={}
- for line in last.splitlines():
-  name,sep,val=line.partition(':')
-  if sep and name.strip().lower() in ('content-type','content-range','retry-after'):
-   headers[name.strip().lower()]=re.sub(r'[^A-Za-z0-9_ .,:;=/+-]','',val.strip())[:70]
- kind=('empty' if not body.strip() else 'html' if body.lstrip().startswith('<') else
-       'json' if body.lstrip().startswith(('{','[')) else 'other')
- return ('body='+kind+', bytes='+str(len(body.encode('utf-8')))+
-         ', type='+headers.get('content-type','absent')+
-         ', range='+headers.get('content-range','absent')+
-         ', retry_after='+headers.get('retry-after','absent'))
+def parsed_headers(header_text):
+ """Read only safe metadata from the last HTTP response, never credentials."""
+ blocks=str(header_text or "").replace("\r","").split("\n\n")
+ final=next((b for b in reversed(blocks) if b.lstrip().startswith("HTTP/")),"")
+ result={}
+ for line in final.splitlines():
+  name,sep,value=line.partition(":")
+  name=name.strip().lower()
+  if sep and name in ("content-type","content-range","retry-after"):
+   result[name]=value.strip()[:90]
+ return result
+
+def response_diagnostics(header_text,body):
+ """Safe HTTP metadata; no response body, tokens or arbitrary headers in logs."""
+ headers=parsed_headers(header_text)
+ kind=("empty" if not body.strip() else "html" if body.lstrip().startswith("<") else
+       "json" if body.lstrip().startswith(("{","[")) else "other")
+ def clean(value):
+  return re.sub(r"[^A-Za-z0-9_ .,:;=/+-]","",value)[:70]
+ return ("body="+kind+", bytes="+str(len(body.encode("utf-8")))+
+         ", type="+clean(headers.get("content-type","absent"))+
+         ", range="+clean(headers.get("content-range","absent"))+
+         ", retry_after="+clean(headers.get("retry-after","absent")))
+
+def retry_after_seconds(value):
+ """Respect Retry-After seconds or a real HTTP-date, when supplied."""
+ if not value:return None
+ try:
+  number=float(value)
+  if 0<=number<=365*86400:return max(1,int(number))
+ except (TypeError,ValueError,OverflowError):pass
+ try:
+  from email.utils import parsedate_to_datetime
+  when=parsedate_to_datetime(value)
+  if when.tzinfo is None:when=when.replace(tzinfo=timezone.utc)
+  delta=(when-datetime.now(timezone.utc)).total_seconds()
+  if delta>=0:return max(1,int(delta)+1)
+ except (ValueError,TypeError,IndexError,OverflowError):pass
+ return None
+
+def parse_product_response(status,headers_text,body):
+ """Classify responses before deciding to stop a store or accept records."""
+ headers=parsed_headers(headers_text)
+ diag=response_diagnostics(headers_text,body)
+ seconds=retry_after_seconds(headers.get("retry-after"))
+ if status==429:
+  raise RemoteRefusal("HTTP 429 rate limit; "+diag,kind="rate_limited",
+                      retry_after_seconds=seconds if seconds is not None else 7200)
+ if status in (401,403):
+  raise RemoteRefusal("HTTP "+str(status)+" access refusal; "+diag,kind="refused",
+                      retry_after_seconds=43200)
+ if status==503 and seconds is not None:
+  raise RemoteRefusal("HTTP 503 with explicit Retry-After; "+diag,
+                      kind="rate_limited",retry_after_seconds=seconds)
+ if status not in (200,206):
+  raise InvalidResponse("Unexpected HTTP "+str(status)+"; "+diag)
+ stripped=body.lstrip()
+ if stripped.startswith("<"):
+  indicators=("captcha","access denied","verify you are human","are you a robot",
+              "unusual traffic","request blocked","akamai","bot detection")
+  blocked=any(tag in stripped[:2000].lower() for tag in indicators)
+  if blocked:
+   raise RemoteRefusal("HTML access challenge; HTTP "+str(status)+"; "+diag,
+                       kind="refused",retry_after_seconds=43200)
+  raise InvalidResponse("Unexpected HTML instead of JSON; HTTP "+str(status)+"; "+diag)
+ if not stripped:
+  raise PartialContent("Empty response; HTTP "+str(status)+"; "+diag)
+ try:raw=json.loads(body)
+ except (ValueError,TypeError):
+  raise PartialContent("Incomplete or malformed JSON; HTTP "+str(status)+"; "+diag)
+ if not isinstance(raw,dict):
+  raise InvalidResponse("Non-object JSON; HTTP "+str(status)+"; "+diag)
+ if raw.get("errors") or raw.get("error"):
+  raise InvalidResponse("GraphQL error response; HTTP "+str(status)+"; "+diag)
+ data=raw.get("data")
+ model=data.get("searchModel") if isinstance(data,dict) else None
+ if not isinstance(model,dict) or not isinstance(model.get("products"),list):
+  raise PartialContent("Missing products array; HTTP "+str(status)+"; "+diag)
+ if status==206:
+  # Retain valid records, but always flag HTTP 206 as incomplete coverage.
+  model["_partial_http"]=True
+  model["_http_diagnostic"]=diag
+ return model
 
 def request(store,keyword):
  payload=json.dumps({"operationName":"searchModel","query":QUERY,"variables":query_variables(store,keyword)})
- command=["curl","--silent","--show-error","--location","--compressed","--max-time","18",
+ command=["curl","--silent","--show-error","--compressed","--max-time","18",
   "--max-filesize","750000","--dump-header","/dev/stderr","-w","\n%{http_code}","-X","POST","--url",ENDPOINT,
   "-H","Accept: application/json","-H","Content-Type: application/json",
   "-H","Referer: https://www.homedepot.com/","-H","x-experience-name: general-merchandise",
   "-H","x-hd-dc: origin","-H","x-debug: false",
-  "-H","User-Agent: PennyWatchNWLA/1.2 (personal, bounded collection; github.com/micahtipton/penny-watch-nwla)",
+  "-H","User-Agent: PennyWatchNWLA/1.3 (bounded personal research; github.com/micahtipton/penny-watch-nwla)",
   "-d",payload]
- try:p=subprocess.run(command,capture_output=True,text=True,timeout=22)
- except (OSError,subprocess.TimeoutExpired) as err:raise InvalidResponse("Connection failure: "+type(err).__name__)
- if p.returncode!=0:raise InvalidResponse("Request failed: curl exited "+str(p.returncode))
- body,sep,code=p.stdout.rpartition("\n")
+ try:res=subprocess.run(command,capture_output=True,text=True,timeout=22)
+ except (OSError,subprocess.TimeoutExpired) as err:
+  raise InvalidResponse("Connection failure: "+type(err).__name__)
+ if res.returncode!=0:
+  raise InvalidResponse("HTTP client error (curl exit "+str(res.returncode)+")")
+ body,sep,code=res.stdout.rpartition("\n")
+ if not sep:raise InvalidResponse("Missing HTTP status line")
  try:status=int(code.strip())
- except ValueError:raise InvalidResponse("No HTTP status")
- if status in (403,206,429):raise RemoteRefusal("Home Depot returned unusable HTTP "+str(status)+"; "+response_diagnostics(p.stderr,body))
- if status!=200:raise InvalidResponse("Unexpected HTTP "+str(status))
- if body.lstrip().startswith("<"):raise RemoteRefusal("Received HTML or access-control response, not product JSON")
- try:raw=json.loads(body)
- except ValueError:raise InvalidResponse("Unable to parse response JSON")
- if not isinstance(raw,dict) or raw.get("errors") or raw.get("error"):
-  raise InvalidResponse("Gateway returned errors or an invalid response")
- result=raw.get("data",{}).get("searchModel")
- if not isinstance(result,dict) or not isinstance(result.get("products"),list):
-  raise InvalidResponse("Search response missing product list")
- return result
+ except ValueError:raise InvalidResponse("Unreadable HTTP status line")
+ return parse_product_response(status,res.stderr,body)
+
 def safe_url(identifiers,item_id):
  link=str(identifiers.get("canonicalUrl") or "").strip()
  if link.startswith("/p/"):link="https://www.homedepot.com"+link
