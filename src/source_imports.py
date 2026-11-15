@@ -5,7 +5,7 @@ from pathlib import Path
 import pennywatch as pw
 import free_sources as fs
 ROOT=Path(__file__).resolve().parents[1]
-KNOWN={"2scraper","hdscanner","omkar","pennycentral","pennyloot"}
+KNOWN={"2scraper","hdscanner","omkar","pennycentral","pennyloot","spotted"}
 def value(r,*keys):
     for k in keys:
         x=r.get(k)
@@ -44,13 +44,13 @@ def row_import(cx,source,row,run):
             "source_url":source_url,"observed_at":observed
         },run)
     else:
-        domain="www.pennycentral.com" if source=="pennycentral" else "www.pennyloot.com"
+        domain={"pennycentral":"www.pennycentral.com","pennyloot":"www.pennyloot.com","spotted":"www.spottedflips.com"}[source]
         sk=fs.sku(value(row,"sku","store_sku"))
         link=fs.https(value(row,"source_url","url","link"),domain=domain)
         observed=fs.date(value(row,"observed_at","reported_at","timestamp"))
         state=str(value(row,"state") or "").upper()
         fs.upsert(cx,{
-            "source":"PennyCentral manual" if source=="pennycentral" else "PennyLoot manual",
+            "source":{"pennycentral":"PennyCentral manual","pennyloot":"PennyLoot manual","spotted":"Spotted manual"}[source],
             "sku":sk,"name":str(value(row,"name","title") or "")[:260],
             "brand":str(value(row,"brand") or "")[:120],
             "internet_number":"","upc":str(value(row,"upc") or ""),"retail":None,
