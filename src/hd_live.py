@@ -47,7 +47,7 @@ def query_variables(store,keyword):
  "storefilter":"IN_STORE","channel":"DESKTOP","additionalSearchParams":{"deliveryZip":"","multiStoreIds":[]}}
 def response_diagnostics(header_text, body):
  """Safe HTTP metadata only; do not store response bodies, cookies or secrets."""
- blocks=str(header_text or '').replace('\\r','').split('\\n\\n')
+ blocks=str(header_text or '').replace('\r','').split('\n\n')
  last=next((b for b in reversed(blocks) if b.lstrip().startswith('HTTP/')), '')
  headers={}
  for line in last.splitlines():
