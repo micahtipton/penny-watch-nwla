@@ -152,17 +152,6 @@ def collect(run):
    try:items,_=load_url(os.environ[key]);import_items(cx,kind,items,run)
    except Exception as e:errors.append(f'{key}: {type(e).__name__} {str(e)[:130]}')
  import_files(cx,run)
- # Bounded three-store online storefront check. Stops on HTTP refusal.
- try:
-  import hd_live
-  hd_live_result=hd_live.scan(cx,run)
-  print('HD ONLINE PRICE CHECK: '+json.dumps(hd_live_result))
-  if hd_live_result['status']=='refused':
-   errors.append('Home Depot access refused; online prices not verified for all stores')
- except ModuleNotFoundError:
-  pass
- except Exception as e:
-  errors.append('Home Depot check: '+type(e).__name__+': '+str(e)[:130])
  # Public community feed supplies leads, never store-specific prices.
  try:
   import free_sources as fs
@@ -174,6 +163,17 @@ def collect(run):
   pass  # Keep the standalone collector valid without optional free-source module.
  except Exception as e:
   errors.append('community integration: '+str(e)[:140])
+ # Bounded three-store online storefront check. Stops on HTTP refusal.
+ try:
+  import hd_live
+  hd_live_result=hd_live.scan(cx,run)
+  print('HD ONLINE PRICE CHECK: '+json.dumps(hd_live_result))
+  if hd_live_result['status'] in ('refused','cooldown','no_price_data'):
+   errors.append('Home Depot online check '+hd_live_result['status']+'; store prices not verified for this run')
+ except ModuleNotFoundError:
+  pass
+ except Exception as e:
+  errors.append('Home Depot check: '+type(e).__name__+': '+str(e)[:130])
  # Source exports require exact local SKU, store, timestamp and evidence URL.
  try:
   import source_imports
