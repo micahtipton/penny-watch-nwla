@@ -100,7 +100,7 @@ def parse_product_response(status,headers_text,body):
                       retry_after_seconds=seconds if seconds is not None else 7200)
  if status in (401,403):
   raise RemoteRefusal("HTTP "+str(status)+" access refusal; "+diag,kind="refused",
-                      retry_after_seconds=43200)
+                      retry_after_seconds=seconds if seconds is not None else 43200)
  if status==503 and seconds is not None:
   raise RemoteRefusal("HTTP 503 with explicit Retry-After; "+diag,
                       kind="rate_limited",retry_after_seconds=seconds)
@@ -123,7 +123,26 @@ def parse_product_response(status,headers_text,body):
  if not isinstance(raw,dict):
   raise InvalidResponse("Non-object JSON; HTTP "+str(status)+"; "+diag)
  if raw.get("errors") or raw.get("error"):
-  raise InvalidResponse("GraphQL error response; HTTP "+str(status)+"; "+diag)
+  errs=raw.get("errors")
+  if not isinstance(errs,list):errs=[errs or raw.get("error")]
+  first=next((e for e in errs if e),None)
+  first=first if isinstance(first,dict) else {"message":str(first or "unknown")}
+  extensions=first.get("extensions") if isinstance(first.get("extensions"),dict) else {}
+  code=re.sub(r"[^A-Za-z0-9_-]","",str(extensions.get("code") or first.get("code") or ""))[:35]
+  # Never log the raw error payload: it may include request-specific tokens.
+  message=str(first.get("message") or "")
+  normalized=(code+" "+message).lower()
+  if any(token in normalized for token in ("rate limit","too many requests","throttl","rate_limited","quota exceeded")):
+   raise RemoteRefusal("GraphQL rate limit; HTTP "+str(status)+"; "+diag,
+                       kind="rate_limited",
+                       retry_after_seconds=seconds if seconds is not None else 7200)
+  if any(token in normalized for token in ("access denied","access blocked","forbidden",
+                                            "unauthorized","captcha","bot detected","request blocked")):
+   raise RemoteRefusal("GraphQL access refusal; HTTP "+str(status)+"; "+diag,
+                       kind="refused",
+                       retry_after_seconds=seconds if seconds is not None else 43200)
+  raise InvalidResponse("GraphQL application error; HTTP "+str(status)+
+                        "; error_code="+(code or "unspecified")+"; "+diag)
  data=raw.get("data")
  model=data.get("searchModel") if isinstance(data,dict) else None
  if not isinstance(model,dict) or not isinstance(model.get("products"),list):
