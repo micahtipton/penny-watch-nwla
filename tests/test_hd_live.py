@@ -62,6 +62,15 @@ class HomeDepotCheckTests(unittest.TestCase):
   self.assertEqual(calls,['0364'])
   self.assertEqual(c.execute("SELECT COUNT(*) FROM hd_cooldown").fetchone()[0],1)
   c.close()
+ def test_http_206_diagnostics_are_metadata_only(self):
+  headers=("HTTP/2 206\r\ncontent-type: application/json\r\n"
+           "content-range: bytes 0-19/100\r\nretry-after: 120\r\n"
+           "set-cookie: SECRET=123\r\n\r\n")
+  result=hd.response_diagnostics(headers,'{"error":"limited"}')
+  self.assertIn("range=bytes 0-19/100",result)
+  self.assertIn("retry_after=120",result)
+  self.assertNotIn("SECRET",result)
+  self.assertNotIn("limited",result)
  def test_missing_valid_store_sku_not_saved(self):
   broken=model()
   broken['products'][0]['identifiers']['storeSkuNumber']=None
