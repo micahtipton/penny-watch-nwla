@@ -65,9 +65,21 @@ The workflow distinguishes `source_unconfigured`, `no_prices`, `partial`, `parti
 
 The Monday list is sorted Bossier City first. In-store verification notes are stored only on the device/browser where they are entered; they do **not** synchronize to GitHub. You can download checklist CSVs for offline use.
 
+## Automatic store-specific online checks (new)
+
+The workflow automatically attempts **bounded Home Depot online storefront checks** at 5:00 AM and 1:00 PM America/Chicago for three selected stores: **0364 Bossier City**, **0356 Bert Kouns**, **0381 West Shreveport**. It checks a rotating sample of product categories/brand keywords (default maximum **9 requests across three stores per run**) and selected community SKU leads. It does not scan the entire product catalog on each run.
+
+The checker uses the public storefront search-result shape described in the MIT-licensed [HDScanner](https://github.com/KenStager/HDScanner) project. It sends a descriptive user agent, checks prices/online clearance, and reads quantity only where a fulfillment record identifies the exact store. All observations are marked **online**, not register-confirmed penny prices. It refuses to assign a store-SKU when only an internet product ID is available.
+
+**Important limitations:** the Home Depot federation gateway is not an officially supported public bulk API; queries may be refused. On HTTP 206, 403, or 429, the collector stops and enters a 24-hour cooldown. It does not rotate proxies, spoof browser fingerprints, solve captchas, or circumvent blocks. The website displays each store's actual scan health. There is **no guarantee** GitHub's free runner will obtain valid data, and blocked runs must not appear as successful inventory checks. Local checkout prices may differ from online results. The collector is subject to Home Depot's current terms and must be disabled if authorization is unavailable.
+
+Automated third-party **community** ingestion currently uses Penny Recon's published JSON only. PennyCentral, PennyLoot and SpottedFlips have no verified freely reusable API in this setup; their import adapters remain available for permissioned exports. 2scraper and Omkar are integrated at the export-data level but their own collectors are not running as a fallback to evade a refusal.
+
+To disable the online checker, set `PW_HD_ENABLED=0` in the scheduled workflow environment. `PW_HD_MAX_QUERIES` sets an upper bound (max 12). A successful request still only establishes a sampled, store-parameterized response, not full stock coverage.
+
 ## Current limitations
 
-- No verified price feeds are connected.
+- The new bounded online checker is configured, but whether GitHub can successfully query the selected storefront for the three stores has not yet been verified.
 - No comprehensive Home Depot inventory source or local checkout-price API is established.
 - Penny Recon is the only built-in automated community feed; PennyCentral, PennyLoot, Facebook and retailer comparisons require permitted sourced exports or feeds. Their existence does not guarantee automated collection.
 - Telegram or other push/email alerts are **not connected or active** in this repository; scheduled reports appear in GitHub Actions logs and website history when runs complete.
