@@ -41,6 +41,16 @@ function render(){
  $('#runsTable').innerHTML=table(['Run','Time CT','Store observations','Total','Archive','Status'],runs.map(r=>[safe(r.id),ts(r.started_at),Object.entries(r.observed_by_store||{}).map(([k,v])=>safe(k)+': '+safe(v)).join(' · ')||'None',Object.values(r.observed_by_store||{}).reduce((a,b)=>a+(+b||0),0),r.archive?'<a href="./'+safe(r.archive)+'" download>Download ZIP ↓</a>':'—',safe(r.status)]));
  let sources=Object.entries(state.sources||{});
  $('#feedHealth').innerHTML='<p><b>'+sources.filter(x=>x[1]).length+'</b> feeds configured. A configured feed does not guarantee valid observations.</p>'+table(['Source','Status'],sources.map(([k,v])=>[safe(k),v?'Configured':'Not configured']));
+ const scanHealth=$('#homeDepotHealth');
+ if(scanHealth){
+  const latest={};
+  (state.hd_scan_checks||[]).forEach(r=>{if(!latest[r.store])latest[r.store]=r});
+  scanHealth.innerHTML=table(['Store','Last attempt CT','Online prices recorded','Scan status','Reason'],Object.keys(STORES).map(st=>{
+   const h=latest[st];
+   return [safe(STORES[st]),h?ts(h.checked_at):'Never',safe(h?.price_rows??0),
+    safe(h?.status||'Not checked'),safe(h?.reason||'No store-scoped response recorded')];
+  }));
+ }
  $('#comparisonsTable').innerHTML=table(['SKU','Product','Retailer','Total','Home Depot','Link'],leads.flatMap(r=>(r.offers||[]).map(o=>[safe(r.sku),safe(r.name),safe(o.retailer),money(o.total),money(r.price),url(o.source_url,'Compare')])));
  renderChecks();
  renderCommunity();
