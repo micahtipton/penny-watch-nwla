@@ -1,0 +1,97 @@
+name: Penny Watch - Scan and Publish
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'docs/**'
+      - 'imports/**'
+      - '.github/workflows/**'
+  schedule:
+    - cron: '0 5 * * *'
+      timezone: America/Chicago
+    - cron: '0 13 * * *'
+      timezone: America/Chicago
+    - cron: '45 5 * * 1'
+      timezone: America/Chicago
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: penny-watch-deployment
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python syntax check
+        run: python -m py_compile src/pennywatch.py
+      - name: Initialize archive
+        run: python src/pennywatch.py init
+      - name: Scheduled collection, never fabricate missing prices
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          CATALOG_FEED_0364: ${{ secrets.CATALOG_FEED_0364 }}
+          CATALOG_FEED_0356: ${{ secrets.CATALOG_FEED_0356 }}
+          CATALOG_FEED_0381: ${{ secrets.CATALOG_FEED_0381 }}
+          PRICE_FEED_0364: ${{ secrets.PRICE_FEED_0364 }}
+          PRICE_FEED_0356: ${{ secrets.PRICE_FEED_0356 }}
+          PRICE_FEED_0381: ${{ secrets.PRICE_FEED_0381 }}
+          REPORTS_FEED_URL: ${{ secrets.REPORTS_FEED_URL }}
+          RETAIL_FEED_URL: ${{ secrets.RETAIL_FEED_URL }}
+          AUTH_FEED_BEARER: ${{ secrets.AUTH_FEED_BEARER }}
+        run: |
+          python - <<'PY'
+          import os,subprocess
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          stamp=datetime.now(ZoneInfo('America/Chicago')).strftime('%Y%m%d')
+          kind=os.getenv('EVENT_SCHEDULE','')
+          if kind.startswith('45 5'):
+              args=['monday']
+          else:
+              slot='0500' if kind.startswith('0 5') else '1300' if kind.startswith('0 13') else 'manual'
+              args=['collect','--slot',stamp+'-'+slot]
+          raise SystemExit(subprocess.run(['python','src/pennywatch.py',*args]).returncode)
+          PY
+      - name: Build static site and downloads
+        run: python src/pennywatch.py build
+      - name: Persist dated verified archive (scheduled/manual runs only)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name 'Penny Watch Bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/penny_watch.sqlite docs/data docs/history docs/exports
+          if ! git diff --cached --quiet; then
+            git commit -m "Archive Penny Watch scan [skip ci]"
+            git push
+          fi
+      - name: Validate Pages size
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          size=sum(f.stat().st_size for f in Path('docs').rglob('*') if f.is_file())
+          print(f'Publication: {size:,} bytes')
+          assert size<800*1024*1024,'Published files exceed 800MB safety threshold'
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
+        id: deployment
